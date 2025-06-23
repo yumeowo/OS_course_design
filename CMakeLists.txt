@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28.3)
-project(OS_homework C)
 
-set(CMAKE_C_STANDARD 11)
+project(OS_homework)
 
-add_executable(OS_homework main.c)
+add_subdirectory(driver)
+add_subdirectory(tools)
