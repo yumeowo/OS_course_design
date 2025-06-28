@@ -63,9 +63,7 @@ MySimpleFS/
 │   ├── test_basic.cpp         // 基础功能测试
 │   ├── test_performance.cpp   // 性能测试
 │   └── test_concurrent.cpp    // 并发测试
-└── examples/                  // 示例程序
-    ├── simple_demo.cpp        // 简单演示
-    └── benchmark.cpp          // 性能基准测试
+└── 
 ```
 ## 核心数据结构
 ### 虚拟磁盘
