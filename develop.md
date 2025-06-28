@@ -18,8 +18,8 @@ OS_homework/
 ├── main.c                  // 主入口程序
 ├── driver/                 // 驱动程序核心代码
 │   ├── CMakeLists.txt      // 驱动程序构建配置
-│   ├── fs.h                // 文件系统数据结构定义
-│   └── fs.c                // 文件系统操作实现
+│   ├── myfs.h                // 文件系统数据结构定义
+│   └── myfs.c                // 文件系统操作实现
 ├── tools/                  // 工具集
 │   ├── CMakeLists.txt      // 工具构建配置 
 │   └── mkfs.c              // 文件系统格式化工具
@@ -40,7 +40,7 @@ OS_homework/
 │   ├── super.c             // 超级块操作实现
 │   └── log.c               // 日志系统实现
 ├── tools/
-│   ├── fsck.c              // 文件系统检查工具
+│   ├── fscheck.c              // 文件系统检查工具
 │   └── debug.c             // 调试工具
 └── tests/                  // 测试目录
     ├── CMakeLists.txt      // 测试构建配置
@@ -50,7 +50,7 @@ OS_homework/
 ```
 ## 当前进度
 1. ✅ 已建立基本项目结构
-2. ✅ 已定义文件系统数据结构（超级块、inode、目录项等）在 `driver/fs.h` 中
+2. ✅ 已定义文件系统数据结构（超级块、inode、目录项等）在 `driver/myfs.h` 中
 3. ✅ 已完成格式化工具（`tools/mkfs.c`）的初步实现
     - 支持创建文件系统超级块
     - 初始化inode区
@@ -59,8 +59,8 @@ OS_homework/
 
 ## 下一阶段任务
 1. **驱动程序核心实现**
-    - [ ] 实现文件系统挂载功能 (`driver/fs.c`）
-    - [ ] 实现VFS接口函数 (`driver/fs.c`)
+    - [ ] 实现文件系统挂载功能 (`driver/myfs.c`）
+    - [ ] 实现VFS接口函数 (`driver/myfs.c`)
     - [ ] 实现超级块操作 (`driver/super.c`)
     - [ ] 实现inode操作 (`driver/inode.c`)
     - [ ] 实现文件操作 (`driver/file.c`)
@@ -90,7 +90,7 @@ OS_homework/
 
 5. **完善工具集**
     - [ ] 增强格式化工具功能 (`tools/mkfs.c`)
-    - [ ] 添加文件系统检查与修复工具 (`tools/fsck.c`)
+    - [ ] 添加文件系统检查与修复工具 (`tools/fscheck.c`)
     - [ ] 开发文件系统调试工具 (`tools/debug.c`)
     - [ ] 完善脚本工具 (`scripts/*.sh`)
 
@@ -107,7 +107,7 @@ OS_homework/
 - inode结构（`fs_inode`）
 - 目录项（`fs_dir_entry`）
 
-这些结构体已在 `driver/fs.h` 中定义。
+这些结构体已在 `driver/myfs.h` 中定义。
 ### 缓存结构设计
 将在 `driver/cache.h` 中定义以下结构：
 ``` c
