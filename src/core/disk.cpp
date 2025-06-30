@@ -1,7 +1,6 @@
 #include "disk.h"
 #include <iostream>
 #include <vector>
-#include <cstring>
 
 /**
  * 创建虚拟磁盘文件
