@@ -14,15 +14,20 @@
 
 class VirtualDisk {
     std::string disk_file_; // 磁盘文件名
-    size_t disk_size_ = DISK_SIZE; // 磁盘大小256MB
+    size_t disk_size_ = DISK_SIZE; // 磁盘大小256MiB
     size_t block_size_ = BLOCK_SIZE; // 块大小4KiB
     std::fstream file_stream_; // 文件流
+    uint32_t total_blocks_; // 总块数
 
 public:
+    VirtualDisk(std::string filename, const size_t size_mb, const size_t block_size = BLOCK_SIZE)
+        : disk_file_(std::move(filename)), disk_size_(size_mb * 1024 * 1024), block_size_(block_size) {
+        total_blocks_ = static_cast<uint32_t>(disk_size_ / block_size_);
+    }
+
     bool create(const std::string& filename, size_t size_mb);
     bool read_block(uint32_t block_no, void* buffer);
     bool write_block(uint32_t block_no, const void* buffer);
-    uint32_t get_total_blocks() const;
 };
 
 #endif //DISK_H

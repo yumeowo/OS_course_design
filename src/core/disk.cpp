@@ -10,7 +10,7 @@
  */
 bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
     disk_file_ = filename;
-    disk_size_ = size_mb * 1000 * 1000; // 将MB转换为字节
+    disk_size_ = size_mb * 1024 * 1024; // 将MiB转换为字节
 
     // 以二进制模式创建文件
     file_stream_.open(disk_file_, std::ios::out | std::ios::binary | std::ios::trunc);
@@ -64,7 +64,7 @@ bool VirtualDisk::read_block(const uint32_t block_no, void* buffer) {
         return false;
     }
 
-    const uint32_t total_blocks = get_total_blocks();
+    const uint32_t total_blocks = total_blocks_;
     if (block_no >= total_blocks) {
         std::cerr << "Error: Block number " << block_no << " exceeds disk capacity ("
                   << total_blocks << " blocks)" << std::endl;
@@ -109,7 +109,7 @@ bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
         return false;
     }
 
-    const uint32_t total_blocks = get_total_blocks();
+    const uint32_t total_blocks = total_blocks_;
     if (block_no >= total_blocks) {
         std::cerr << "Error: Block number " << block_no << " exceeds disk capacity ("
                   << total_blocks << " blocks)" << std::endl;
@@ -137,12 +137,4 @@ bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
     file_stream_.flush();
 
     return true;
-}
-
-/**
- * 获取磁盘总块数
- * @return 磁盘总块数
- */
-uint32_t VirtualDisk::get_total_blocks() const {
-    return static_cast<uint32_t>(disk_size_ / block_size_);
 }
