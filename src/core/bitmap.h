@@ -4,6 +4,7 @@
 #include <vector>
 #include <mutex>
 #include <cstdint>
+#include <memory> 
 
 /**
  * 空闲盘块表 - 使用位图管理磁盘空间
@@ -14,7 +15,7 @@ class FreeBitmap
     std::vector<uint8_t> bitmap_; // 位图数组，每个bit表示一个块的状态
     uint32_t total_blocks_; // 总块数
     uint32_t free_blocks_; // 空闲块数
-    std::mutex mutex_; // 线程安全锁
+    mutable std::recursive_mutex mutex_;  // 
 
     /**
      * 检查指定块是否空闲
@@ -48,6 +49,11 @@ public:
      * 构造函数
      * @param total_blocks 总块数
      */
+
+    FreeBitmap(const FreeBitmap&) = delete;
+    FreeBitmap& operator=(const FreeBitmap&) = delete;
+    FreeBitmap(FreeBitmap&&) = delete;
+    FreeBitmap& operator=(FreeBitmap&&) = delete;
     explicit FreeBitmap(uint32_t total_blocks);
 
     /**
@@ -118,10 +124,14 @@ public:
      * 获取磁盘使用率
      * @return 使用率百分比 (0.0 - 1.0)
      */
-    double get_usage_ratio()
-    {
+    double get_usage_ratio() {
+        printf("total_blocks_\n");
         std::lock_guard lock(mutex_);
-        return total_blocks_ > 0 ? static_cast<double>(total_blocks_ - free_blocks_) / total_blocks_ : 0.0;
+        if (total_blocks_ == 0) {
+            return 0.0; // 避免除以零
+        }
+
+        return static_cast<double>(total_blocks_ - free_blocks_) / total_blocks_;
     }
 
     /**
@@ -141,6 +151,21 @@ public:
      * @return true如果数据一致，false如果有错误
      */
     bool validate();
+    bool serialize_to(void* buffer, size_t buffer_size) const;
+    bool deserialize_from(const void* buffer, size_t buffer_size);
+
+    bool is_mutex_valid() const {
+        // 尝试加锁测试（仅用于调试）
+        bool valid = true;
+        try {
+            std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+        }
+        catch (...) {
+            valid = false;
+        }
+        return valid;
+    }
 };
 
 #endif //BITMAP_H
