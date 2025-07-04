@@ -138,3 +138,16 @@ bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
 
     return true;
 }
+
+bool VirtualDisk::copy_blocks(uint32_t src_block, uint32_t dst_block, uint32_t count) {
+    std::vector<uint8_t> buffer(BLOCK_SIZE);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!read_block(src_block + i, buffer.data())) {
+            return false;
+        }
+        if (!write_block(dst_block + i, buffer.data())) {
+            return false;
+        }
+    }
+    return true;
+}

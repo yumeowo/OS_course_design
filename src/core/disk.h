@@ -28,6 +28,7 @@ public:
     bool create(const std::string& filename, size_t size_mb);
     bool read_block(uint32_t block_no, void* buffer);
     bool write_block(uint32_t block_no, const void* buffer);
+    bool copy_blocks(uint32_t src_block, uint32_t dst_block, uint32_t count);
 };
 
 #endif //DISK_H

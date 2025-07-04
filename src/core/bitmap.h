@@ -166,6 +166,8 @@ public:
         }
         return valid;
     }
+
+    void mark_block_used(uint32_t block_id);
 };
 
 #endif //BITMAP_H

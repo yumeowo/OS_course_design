@@ -253,3 +253,7 @@ bool FreeBitmap::deserialize_from(const void* buffer, size_t buffer_size) {
     return true;
 }
 
+void FreeBitmap::mark_block_used(uint32_t block_id) {
+    if (block_id >= total_blocks_) return;
+    set_block_status(block_id, true);
+}
