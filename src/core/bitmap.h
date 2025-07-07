@@ -2,8 +2,8 @@
 #define BITMAP_H
 
 #include <vector>
-#include <mutex>
-#include <memory> 
+
+#include "../process/sync.h"
 
 /**
  * 空闲盘块表 - 使用位图管理磁盘空间
@@ -14,7 +14,7 @@ class FreeBitmap
     std::vector<uint8_t> bitmap_; // 位图数组，每个bit表示一个块的状态
     uint32_t total_blocks_; // 总块数
     uint32_t free_blocks_; // 空闲块数
-    mutable std::recursive_mutex mutex_;  // 
+    mutable ReadWriteLock rw_lock_;  // 使用读写锁优化并发性能
 
     /**
      * 检查指定块是否空闲
@@ -98,7 +98,10 @@ public:
      * 获取总块数
      * @return 总块数
      */
-    uint32_t get_total_blocks() const { return total_blocks_; }
+    uint32_t get_total_blocks() const
+    {
+        return total_blocks_;
+    }
 
     /**
      * 获取空闲块数
@@ -106,7 +109,7 @@ public:
      */
     uint32_t get_free_blocks() const
     {
-        std::lock_guard lock(mutex_);
+        ReadWriteLock::ReadGuard guard(rw_lock_);
         return free_blocks_;
     }
 
@@ -116,7 +119,7 @@ public:
      */
     uint32_t get_used_blocks() const
     {
-        std::lock_guard lock(mutex_);
+        ReadWriteLock::ReadGuard guard(rw_lock_);
         return total_blocks_ - free_blocks_;
     }
 
@@ -126,7 +129,7 @@ public:
      */
     double get_usage_ratio() const
     {
-        std::lock_guard lock(mutex_);
+        ReadWriteLock::ReadGuard guard(rw_lock_);
         if (total_blocks_ == 0) {
             return 0.0; // 避免除以零
         }
@@ -158,8 +161,7 @@ public:
         // 尝试加锁测试（仅用于调试）
         bool valid = true;
         try {
-            std::lock_guard<std::recursive_mutex> lock(mutex_);
-
+            ReadWriteLock::ReadGuard guard(rw_lock_);
         }
         catch (...) {
             valid = false;

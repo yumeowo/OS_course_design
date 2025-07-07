@@ -5,8 +5,7 @@
 
 FreeBitmap::FreeBitmap(const uint32_t total_blocks)
     : total_blocks_(total_blocks),
-    free_blocks_(total_blocks),
-    mutex_() {  // 显式初始化 mutex
+    free_blocks_(total_blocks) {
     if (total_blocks == 0) {
         throw std::invalid_argument("总块数不能为零");
     }
@@ -14,7 +13,7 @@ FreeBitmap::FreeBitmap(const uint32_t total_blocks)
 }
 
 void FreeBitmap::initialize() {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard guard(rw_lock_);
 
     // 重置所有位为0（空闲状态）
     std::fill(bitmap_.begin(), bitmap_.end(), 0);
@@ -22,6 +21,7 @@ void FreeBitmap::initialize() {
 }
 
 bool FreeBitmap::is_block_free(const uint32_t block_no) const {
+    ReadWriteLock::ReadGuard guard(rw_lock_);
     if (block_no >= total_blocks_) {
         return false;
     }
@@ -61,6 +61,8 @@ void FreeBitmap::set_block_status(const uint32_t block_no, const bool allocated)
 }
 
 uint32_t FreeBitmap::find_first_free_block() const {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
     for (uint32_t block = 0; block < total_blocks_; ++block) {
         if (is_block_free(block)) {
             return block;
@@ -70,6 +72,8 @@ uint32_t FreeBitmap::find_first_free_block() const {
 }
 
 uint32_t FreeBitmap::find_consecutive_free_blocks(const uint32_t count) const {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
     if (count == 0 || count > free_blocks_) {
         return UINT32_MAX;
     }
@@ -94,7 +98,7 @@ uint32_t FreeBitmap::find_consecutive_free_blocks(const uint32_t count) const {
 }
 
 bool FreeBitmap::allocate_block(uint32_t& block_no) {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (free_blocks_ == 0) {
         return false;  // 没有空闲块
@@ -112,7 +116,7 @@ bool FreeBitmap::allocate_block(uint32_t& block_no) {
 }
 
 bool FreeBitmap::allocate_consecutive_blocks(const uint32_t count, uint32_t& start_block) {
-    std::lock_guard lock(mutex_);
+    ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (count == 0) {
         return false;
@@ -137,7 +141,7 @@ bool FreeBitmap::allocate_consecutive_blocks(const uint32_t count, uint32_t& sta
 }
 
 void FreeBitmap::free_block(const uint32_t block_no) {
-    std::lock_guard lock(mutex_);
+    ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (block_no >= total_blocks_) {
         return;  // 无效的块号
@@ -147,10 +151,10 @@ void FreeBitmap::free_block(const uint32_t block_no) {
 }
 
 void FreeBitmap::free_consecutive_blocks(const uint32_t start_block, const uint32_t count) {
-    std::lock_guard lock(mutex_);
+    ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (start_block >= total_blocks_ || count == 0) {
-        return;  // 无效参数
+        return;  // 无效的起始块号或计数
     }
 
     // 确保不会越界
@@ -163,8 +167,7 @@ void FreeBitmap::free_consecutive_blocks(const uint32_t start_block, const uint3
 
 bool FreeBitmap::is_block_allocated(const uint32_t block_no) const
 {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-
+    ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (block_no >= total_blocks_) {
         return false;  // 无效的块号
@@ -175,13 +178,19 @@ bool FreeBitmap::is_block_allocated(const uint32_t block_no) const
 
 void FreeBitmap::print_status() const
 {
-    // 使用带模板参数的lock_guard（兼容所有C++版本）
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    // 创建局部快照，避免长时间持有锁
+    std::vector<uint8_t> sample;
+    uint32_t total, free;
+    size_t sample_size;
+    {
+        ReadWriteLock::WriteGuard guard(rw_lock_);
 
-    // 获取原子快照
-    const uint32_t total = total_blocks_;
-    const uint32_t free = free_blocks_;
-    const auto& bitmap = bitmap_;
+        // 创建局部快照，避免长时间持有锁
+        total = total_blocks_;
+        free = free_blocks_;
+        sample_size = std::min<size_t>(8, bitmap_.size());
+        sample.assign(bitmap_.begin(), bitmap_.begin() + sample_size);
+    } // guard在这里被销毁，避免在持有锁时进行I/O操作
 
     // 打印信息
     std::cout << "\n=== 空闲盘块表状态 ===" << std::endl;
@@ -189,7 +198,6 @@ void FreeBitmap::print_status() const
     std::cout << "空闲块数: " << free << std::endl;
     std::cout << "已使用块数: " << (total - free) << std::endl;
 
-    // 安全计算使用率
     if (total > 0) {
         std::cout << "使用率: " << std::fixed << std::setprecision(2)
             << ((total - free) * 100.0 / total) << "%" << std::endl;
@@ -199,18 +207,17 @@ void FreeBitmap::print_status() const
     }
 
     // 打印位图样本
-    const size_t sample_size = std::min<size_t>(8, bitmap.size());
     std::cout << "位图样本（前" << sample_size << "字节）: ";
     for (size_t i = 0; i < sample_size; ++i) {
         std::cout << std::hex << std::setw(2) << std::setfill('0')
-            << static_cast<int>(bitmap[i]) << " ";
+            << static_cast<int>(sample[i]) << " ";
     }
     std::cout << std::dec << std::endl;
 }
 
 bool FreeBitmap::validate() const
 {
-    std::lock_guard lock(mutex_);
+    ReadWriteLock::WriteGuard guard(rw_lock_);
 
     // 重新计算空闲块数，验证内部状态是否一致
     uint32_t calculated_free_blocks = 0;
@@ -230,15 +237,22 @@ bool FreeBitmap::validate() const
     return is_valid;
 }
 bool FreeBitmap::serialize_to(void* buffer, const size_t buffer_size) const {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
+    if (buffer == nullptr || buffer_size == 0) {
+        return false;  // 无效的缓冲区
+    }
     const size_t required_size = bitmap_.size();
     if (buffer_size < required_size) {
-        return false;
+        return false; // 缓冲区大小不足
     }
     memcpy(buffer, bitmap_.data(), required_size);
     return true;
 }
 
 bool FreeBitmap::deserialize_from(const void* buffer, const size_t buffer_size) {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
     const size_t required_size = bitmap_.size();
     if (buffer_size < required_size) {
         return false;
@@ -255,7 +269,9 @@ bool FreeBitmap::deserialize_from(const void* buffer, const size_t buffer_size) 
     return true;
 }
 
-void FreeBitmap::mark_block_used(uint32_t block_id) {
+void FreeBitmap::mark_block_used(const uint32_t block_id) {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
     if (block_id >= total_blocks_) return;
     set_block_status(block_id, true);
 }
