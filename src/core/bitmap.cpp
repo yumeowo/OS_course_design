@@ -161,7 +161,8 @@ void FreeBitmap::free_consecutive_blocks(const uint32_t start_block, const uint3
     }
 }
 
-bool FreeBitmap::is_block_allocated(const uint32_t block_no) {
+bool FreeBitmap::is_block_allocated(const uint32_t block_no) const
+{
     std::lock_guard<std::recursive_mutex> lock(mutex_);
 
 
@@ -172,8 +173,8 @@ bool FreeBitmap::is_block_allocated(const uint32_t block_no) {
     return !is_block_free(block_no);
 }
 
-// bitmap.cpp
-void FreeBitmap::print_status() {
+void FreeBitmap::print_status() const
+{
     // 使用带模板参数的lock_guard（兼容所有C++版本）
     std::lock_guard<std::recursive_mutex> lock(mutex_);
 
@@ -207,7 +208,8 @@ void FreeBitmap::print_status() {
     std::cout << std::dec << std::endl;
 }
 
-bool FreeBitmap::validate() {
+bool FreeBitmap::validate() const
+{
     std::lock_guard lock(mutex_);
 
     // 重新计算空闲块数，验证内部状态是否一致
@@ -227,7 +229,7 @@ bool FreeBitmap::validate() {
 
     return is_valid;
 }
-bool FreeBitmap::serialize_to(void* buffer, size_t buffer_size) const {
+bool FreeBitmap::serialize_to(void* buffer, const size_t buffer_size) const {
     const size_t required_size = bitmap_.size();
     if (buffer_size < required_size) {
         return false;
@@ -236,7 +238,7 @@ bool FreeBitmap::serialize_to(void* buffer, size_t buffer_size) const {
     return true;
 }
 
-bool FreeBitmap::deserialize_from(const void* buffer, size_t buffer_size) {
+bool FreeBitmap::deserialize_from(const void* buffer, const size_t buffer_size) {
     const size_t required_size = bitmap_.size();
     if (buffer_size < required_size) {
         return false;
