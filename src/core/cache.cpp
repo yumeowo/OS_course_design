@@ -20,44 +20,69 @@ CacheManager::~CacheManager() {
 }
 
 bool CacheManager::read_block(const uint32_t block_no, void* buffer) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    // 使用读锁，允许多个读操作并发
+    ReadWriteLock::ReadGuard lock(rw_lock_);
+    LockManager::register_lock();
     
     int page_index = find_page(block_no);
     
-    // 如果页面不在缓存中
+    // 如果页面不在缓存中，需要升级为写锁
     if (page_index == -1) {
-        page_index = get_free_page();
-        if (page_index == -1) return false;
-        
-        // 初始化新页面
-        pages_[page_index].block_no = block_no;
-        pages_[page_index].dirty = false;
-        pages_[page_index].access_time = time(nullptr);
-        
-        // 更新映射
-        block_to_page_[block_no] = page_index;
-        fifo_queue_.push(page_index);
+        lock.~ReadGuard();  // 释放读锁
+        ReadWriteLock::WriteGuard write_lock(rw_lock_);  // 获取写锁
+
+        // 重新检查，避免竞态条件
+        page_index = find_page(block_no);
+        if (page_index == -1) {
+            page_index = get_free_page();
+            if (page_index == -1) {
+                LockManager::unregister_lock();
+                return false;
+            }
+
+            // 从磁盘读取数据
+            if (!disk_.read_block(block_no, pages_[page_index].data.data())) {
+                LockManager::unregister_lock();
+                return false;
+            }
+
+            // 初始化新页面
+            pages_[page_index].block_no = block_no;
+            pages_[page_index].dirty = false;
+            pages_[page_index].access_time = time(nullptr);
+
+            // 更新映射
+            block_to_page_[block_no] = page_index;
+            fifo_queue_.push(page_index);
+        }
     }
 
     // 复制数据到缓冲区
     std::memcpy(buffer, pages_[page_index].data.data(), block_size_);
+
+    LockManager::unregister_lock();
     return true;
 }
 
 bool CacheManager::write_block(const uint32_t block_no, const void* buffer) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
+    // 写操作需要写锁
+    ReadWriteLock::WriteGuard lock(rw_lock_);
+    LockManager::register_lock();
+
     int page_index = find_page(block_no);
-    
+
     // 如果页面不在缓存中
     if (page_index == -1) {
         page_index = get_free_page();
-        if (page_index == -1) return false;
-        
+        if (page_index == -1) {
+            LockManager::unregister_lock();
+            return false;
+        }
+
         // 初始化新页面
         pages_[page_index].block_no = block_no;
         pages_[page_index].access_time = time(nullptr);
-        
+
         // 更新映射
         block_to_page_[block_no] = page_index;
         fifo_queue_.push(page_index);
@@ -66,26 +91,35 @@ bool CacheManager::write_block(const uint32_t block_no, const void* buffer) {
     // 更新页面数据
     std::memcpy(pages_[page_index].data.data(), buffer, block_size_);
     pages_[page_index].dirty = true;
+
+    LockManager::unregister_lock();
     return true;
 }
 
 void CacheManager::flush_all() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
+    ReadWriteLock::WriteGuard lock(rw_lock_);
+    LockManager::register_lock();
+
     // 写回所有脏页
     for (size_t i = 0; i < pages_.size(); ++i) {
         if (pages_[i].dirty) {
             write_back_page(i);
         }
     }
+
+    LockManager::unregister_lock();
 }
 
 int CacheManager::find_page(const uint32_t block_no) {
+    // 对于快速查找操作，使用自旋锁
+    SpinLock spin_lock;
+    spin_lock.lock();
+
     const auto it = block_to_page_.find(block_no);
-    if (it != block_to_page_.end()) {
-        return it->second;
-    }
-    return -1;
+    const int result = (it != block_to_page_.end()) ? it->second : -1;
+
+    spin_lock.unlock();
+    return result;
 }
 
 int CacheManager::get_free_page() {

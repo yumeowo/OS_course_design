@@ -4,10 +4,12 @@
 #include <queue>
 #include <mutex>
 #include <unordered_map>
-#include <cstdint>
 #include <ctime>
 
 #include "disk.h"
+#include "../process/sync.h"
+
+#define CACHE_PAGES 16          // 缓冲页数量
 
 struct CachePage {
     uint32_t block_no;              // 缓存的块号
@@ -18,7 +20,7 @@ struct CachePage {
 
 class CacheManager {
 public:
-    explicit CacheManager(VirtualDisk& disk, size_t page_count = 16, size_t block_size = 4096);
+    explicit CacheManager(VirtualDisk& disk, size_t page_count = CACHE_PAGES, size_t block_size = 4096);
     ~CacheManager();
 
     bool read_block(uint32_t block_no, void* buffer);
@@ -31,7 +33,9 @@ private:
     std::queue<uint32_t> fifo_queue_;
     std::unordered_map<uint32_t, uint32_t> block_to_page_;
     std::mutex mutex_;
-    
+
+    ReadWriteLock rw_lock_;
+
     const size_t page_count_;
     const size_t block_size_;
 
