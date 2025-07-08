@@ -1,8 +1,5 @@
 #include "inode.h"
-#include "disk.h"
-#include "bitmap.h"
 #include <cstring>
-#include <stdexcept>
 #include <cmath>
 
 // 每个INode结构体大小（字节）
@@ -18,6 +15,7 @@ INodeManager::INodeManager(VirtualDisk* disk, FreeBitmap* bitmap)
     inode_count_ = 0;
 
     // 可选：启动时扫描 INODE 表恢复使用状态（用于 mount）
+    ReadWriteLock::WriteGuard init_guard(inode_lock_);
     for (uint32_t i = 0; i < MAX_FILES; ++i) {
         INode node;
         if (read_inode(i, &node)) {
@@ -29,18 +27,25 @@ INodeManager::INodeManager(VirtualDisk* disk, FreeBitmap* bitmap)
     }
 }
 
-int32_t INodeManager::create_inode(uint32_t parent_id, uint8_t type,
-                                   const std::string& name, uint32_t size) {
+int32_t INodeManager::create_inode(const uint32_t parent_id, const uint8_t type,
+                                   const std::string& name, const uint32_t size) {
+    // 使用写锁保护整个创建过程
+    ReadWriteLock::WriteGuard write_guard(inode_lock_);
+
     if (inode_count_ >= MAX_FILES) {
         return -1; // 无可用 inode
     }
 
-    // 寻找未使用的 inode 槽位
+    // 寻找未使用的 inode 槽位需要原子操作
     int32_t inode_id = -1;
-    for (uint32_t i = 0; i < MAX_FILES; ++i) {
-        if (!inode_used_[i]) {
-            inode_id = i;
-            break;
+    {
+        LockGuard<SimpleMutex> alloc_guard(allocation_mutex_);
+        for (uint32_t i = 0; i < MAX_FILES; ++i) {
+            if (!inode_used_[i]) {
+                inode_id = i;
+                inode_used_[i] = true;  // 立即标记为已使用
+                break;
+            }
         }
     }
     if (inode_id == -1) return -1;
@@ -51,10 +56,12 @@ int32_t INodeManager::create_inode(uint32_t parent_id, uint8_t type,
 
     if (type == FS_FILE) {
         if (!bitmap_->allocate_consecutive_blocks(block_count, start_block)) {
+            inode_used_[inode_id] = false; // 失败时回滚
             return -2;
         }
     } else {
         if (!bitmap_->allocate_consecutive_blocks(1, start_block)) {
+            inode_used_[inode_id] = false; // 失败时回滚
             return -2;
         }
         block_count = 1;
@@ -75,6 +82,7 @@ int32_t INodeManager::create_inode(uint32_t parent_id, uint8_t type,
 
     if (!write_inode(new_node.id, &new_node)) {
         bitmap_->free_consecutive_blocks(start_block, block_count);
+        inode_used_[inode_id] = false; // 写入失败，回滚
         return -3;
     }
 
@@ -83,11 +91,20 @@ int32_t INodeManager::create_inode(uint32_t parent_id, uint8_t type,
     return inode_id;
 }
 
-bool INodeManager::read_inode(uint32_t inode_id, INode* node) {
+bool INodeManager::read_inode(const uint32_t inode_id, INode* node) const
+{
     if (inode_id >= MAX_FILES) return false;
 
-    uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
-    uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
+    // 使用读锁保护读操作
+    ReadWriteLock::ReadGuard read_guard(inode_lock_);
+
+    if (!inode_used_[inode_id]) return false;
+
+    // 细粒度锁保护具体inode
+    LockGuard<SpinLock> inode_guard(inode_locks_[inode_id]);
+
+    const uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
+    const uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
 
     std::vector<uint8_t> block(BLOCK_SIZE);
     if (!disk_->read_block(block_index, block.data())) return false;
@@ -96,11 +113,20 @@ bool INodeManager::read_inode(uint32_t inode_id, INode* node) {
     return true;
 }
 
-bool INodeManager::write_inode(uint32_t inode_id, const INode* node) {
+bool INodeManager::write_inode(const uint32_t inode_id, const INode* node) const
+{
     if (inode_id >= MAX_FILES) return false;
 
-    uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
-    uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
+    // 使用写锁保护写操作
+    ReadWriteLock::WriteGuard write_guard(inode_lock_);
+
+    if (!inode_used_[inode_id]) return false;
+
+    // 细粒度锁保护具体inode
+    LockGuard<SpinLock> inode_guard(inode_locks_[inode_id]);
+
+    const uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
+    const uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
 
     std::vector<uint8_t> block(BLOCK_SIZE);
     if (!disk_->read_block(block_index, block.data())) return false;
@@ -109,8 +135,12 @@ bool INodeManager::write_inode(uint32_t inode_id, const INode* node) {
     return disk_->write_block(block_index, block.data());
 }
 
-bool INodeManager::delete_inode(uint32_t inode_id) {
+bool INodeManager::delete_inode(const uint32_t inode_id) {
     if (inode_id >= MAX_FILES || !inode_used_[inode_id]) return false;
+
+    ReadWriteLock::WriteGuard write_guard(inode_lock_);
+
+    LockGuard<SpinLock> inode_guard(inode_locks_[inode_id]);
 
     INode node;
     if (!read_inode(inode_id, &node)) return false;
@@ -127,17 +157,32 @@ bool INodeManager::delete_inode(uint32_t inode_id) {
 
     if (!write_inode(inode_id, &node)) return false;
 
-    inode_used_[inode_id] = false;
-    inode_count_--;
+    // 原子性地更新使用状态
+    {
+        LockGuard<SimpleMutex> alloc_guard(allocation_mutex_);
+        inode_used_[inode_id] = false;
+        inode_count_--;
+    }
+
     return true;
 }
 
-bool INodeManager::resize_inode(uint32_t inode_id, uint32_t new_size) {
+bool INodeManager::resize_inode(const uint32_t inode_id, const uint32_t new_size) const
+{
+    if (inode_id >= MAX_FILES) return false;
+
+    // 使用写锁保护整个resize过程
+    ReadWriteLock::WriteGuard write_guard(inode_lock_);
+
+    if (!inode_used_[inode_id]) return false;
+
+    LockGuard<SpinLock> inode_guard(inode_locks_[inode_id]);
+
     INode node;
     if (!read_inode(inode_id, &node) || node.type != FS_FILE) return false;
 
-    uint32_t new_blocks = calculate_blocks_needed(new_size);
-    uint32_t old_blocks = node.block_count;
+    const uint32_t new_blocks = calculate_blocks_needed(new_size);
+    const uint32_t old_blocks = node.block_count;
 
     if (new_blocks == old_blocks) {
         node.size = new_size;
@@ -146,12 +191,12 @@ bool INodeManager::resize_inode(uint32_t inode_id, uint32_t new_size) {
     }
 
     if (new_blocks > old_blocks) {
-        uint32_t additional = new_blocks - old_blocks;
+        const uint32_t additional = new_blocks - old_blocks;
         bool contiguous = true;
 
         // 检查后续 block 是否空闲（确保从 node.start_block + old_blocks 开始有足够空位）
         for (uint32_t i = 0; i < additional; ++i) {
-            if (bitmap_->is_block_used(node.start_block + old_blocks + i)) {
+            if (bitmap_->is_block_allocated(node.start_block + old_blocks + i)) {
                 contiguous = false;
                 break;
             }
@@ -190,17 +235,19 @@ bool INodeManager::resize_inode(uint32_t inode_id, uint32_t new_size) {
     return write_inode(inode_id, &node);
 }
 
-uint32_t INodeManager::calculate_blocks_needed(uint32_t size) const {
+uint32_t INodeManager::calculate_blocks_needed(const uint32_t size)
+{
     return (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
 }
 
-bool INodeManager::validate_inode(const INode* node) const {
+bool INodeManager::validate_inode(const INode* node)
+{
     return node->id < MAX_FILES && 
            (node->type == FS_FILE || node->type == FS_DIRECTORY) &&
            node->block_count > 0;
 }
 
-int32_t INodeManager::find_inode(uint32_t parent_id, const std::string& name) {
+int32_t INodeManager::find_inode(const uint32_t parent_id, const std::string& name) {
     for (uint32_t i = 0; i < MAX_FILES; ++i) {
         if (!inode_used_[i]) continue;
         INode node;

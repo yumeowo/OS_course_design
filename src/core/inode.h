@@ -1,9 +1,12 @@
 #pragma once
 
-#include <cstdint>
-#include <ctime>
 #include <string>
 #include <vector>
+
+#include "disk.h"
+#include "bitmap.h"
+#include "directory.h"
+#include "../process/sync.h"
 
 // INode 类型定义
 #define FS_FILE 0
@@ -29,24 +32,29 @@ public:
     // 核心接口
     int32_t create_inode(uint32_t parent_id, uint8_t type,
                          const std::string& name, uint32_t size);
-    bool read_inode(uint32_t inode_id, INode* node);
-    bool write_inode(uint32_t inode_id, const INode* node);
+    bool read_inode(uint32_t inode_id, INode* node) const;
+    bool write_inode(uint32_t inode_id, const INode* node) const;
     bool delete_inode(uint32_t inode_id);
     int32_t find_inode(uint32_t parent_id, const std::string& name);
 
     // 辅助功能
-    bool resize_inode(uint32_t inode_id, uint32_t new_size);
+    bool resize_inode(uint32_t inode_id, uint32_t new_size) const;
     uint32_t get_total_inodes() const;
 
 private:
-    // 私有方法
-    uint32_t calculate_blocks_needed(uint32_t size) const;
-    bool validate_inode(const INode* node) const;
-    std::vector<bool> inode_used_;
+    // 添加同步原语
+    mutable ReadWriteLock inode_lock_;           // 保护整个inode表
+    mutable std::vector<SpinLock> inode_locks_;  // 每个inode的细粒度锁
+    mutable SimpleMutex allocation_mutex_;       // 保护分配操作
 
     // 磁盘和资源管理
     VirtualDisk* disk_;             // 虚拟磁盘指针
     FreeBitmap* bitmap_;            // 空闲块位图
     uint32_t inode_table_start_;    // INode表起始块号
     uint32_t inode_count_ = 0;      // 当前INode数量
+
+    // 私有方法
+    static uint32_t calculate_blocks_needed(uint32_t size);
+    static bool validate_inode(const INode* node);
+    std::vector<bool> inode_used_;
 };
