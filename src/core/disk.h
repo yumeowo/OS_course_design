@@ -8,9 +8,10 @@
 #define DISK_SIZE 256000000     // 磁盘大小 256MB
 #define BLOCK_SIZE 4096         // 磁盘块大小 4KiB
 
-#include <cstdint>
 #include <fstream>
 #include <string>
+
+#include  "../process/sync.h"
 
 class VirtualDisk {
     std::string disk_file_; // 磁盘文件名
@@ -18,6 +19,7 @@ class VirtualDisk {
     size_t block_size_ = BLOCK_SIZE; // 块大小4KiB
     std::fstream file_stream_; // 文件流
     uint32_t total_blocks_; // 总块数
+    mutable ReadWriteLock disk_lock_; // 磁盘操作互斥锁
 
 public:
     VirtualDisk(std::string filename, const size_t size_mb, const size_t block_size = BLOCK_SIZE)

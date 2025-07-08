@@ -9,6 +9,8 @@
  * @return 创建成功返回true，失败返回false
  */
 bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
+    ReadWriteLock::WriteGuard lock(disk_lock_); // 使用写锁保护磁盘创建操作
+
     disk_file_ = filename;
     disk_size_ = size_mb * 1024 * 1024; // 将MiB转换为字节
 
@@ -54,6 +56,8 @@ bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
  * @return 读取成功返回true，失败返回false
  */
 bool VirtualDisk::read_block(const uint32_t block_no, void* buffer) {
+    ReadWriteLock::ReadGuard lock(disk_lock_); // 使用读锁保护磁盘读取操作
+
     if (!buffer) {
         std::cerr << "Error: Invalid buffer pointer" << std::endl;
         return false;
@@ -99,6 +103,8 @@ bool VirtualDisk::read_block(const uint32_t block_no, void* buffer) {
  * @return 写入成功返回true，失败返回false
  */
 bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
+    ReadWriteLock::WriteGuard lock(disk_lock_); // 使用写锁保护磁盘写入操作
+
     if (!buffer) {
         std::cerr << "Error: Invalid buffer pointer" << std::endl;
         return false;
@@ -139,7 +145,9 @@ bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
     return true;
 }
 
-bool VirtualDisk::copy_blocks(uint32_t src_block, uint32_t dst_block, uint32_t count) {
+bool VirtualDisk::copy_blocks(const uint32_t src_block, const uint32_t dst_block, const uint32_t count) {
+    ReadWriteLock::WriteGuard lock(disk_lock_); // 使用写锁保护块复制操作
+
     std::vector<uint8_t> buffer(BLOCK_SIZE);
     for (uint32_t i = 0; i < count; ++i) {
         if (!read_block(src_block + i, buffer.data())) {
