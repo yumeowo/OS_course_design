@@ -3,9 +3,10 @@
 
 #include <string>
 #include <vector>
-#include <memory>
-#include <mutex>
-#include "inode.h"
+#include "../process/sync.h"
+
+#define MAX_FILES 256          // 最大文件数
+#define MAX_DIRS 64             // 最大目录数
 
 // 目录项结构
 struct DirectoryEntry {
@@ -22,7 +23,7 @@ private:
 
     uint32_t dir_inode_id_;        // 当前目录的inode ID
     std::vector<DirectoryEntry> entries_;  // 目录项列表
-    std::mutex mutex_;             // 目录操作互斥锁
+    mutable ReadWriteLock rw_lock_;             // 目录操作互斥锁
 
 public:
     // 构造函数

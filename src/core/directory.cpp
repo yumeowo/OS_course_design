@@ -2,12 +2,10 @@
 #include <cstring>
 #include <algorithm>
 
-Directory::Directory(uint32_t dir_inode_id) : dir_inode_id_(dir_inode_id) {
-    entries_.reserve(MAX_ENTRIES);
-}
+Directory::Directory(const uint32_t dir_inode_id) : dir_inode_id_(dir_inode_id) {}
 
-bool Directory::add_entry(const std::string& name, uint32_t inode_id, uint8_t type) {
-    std::lock_guard<std::mutex> lock(mutex_);
+bool Directory::add_entry(const std::string& name, const uint32_t inode_id, const uint8_t type) {
+    ReadWriteLock::WriteGuard lock(rw_lock_);
 
     // 检查名称长度
     if (name.empty() || name.length() >= sizeof(DirectoryEntry::name)) {
@@ -37,9 +35,9 @@ bool Directory::add_entry(const std::string& name, uint32_t inode_id, uint8_t ty
 }
 
 bool Directory::remove_entry(const std::string& name) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::WriteGuard lock(rw_lock_);
 
-    auto it = std::find_if(entries_.begin(), entries_.end(),
+    const auto it = std::find_if(entries_.begin(), entries_.end(),
                           [&name](const DirectoryEntry& entry) {
                               return std::strcmp(entry.name, name.c_str()) == 0;
                           });
@@ -53,9 +51,9 @@ bool Directory::remove_entry(const std::string& name) {
 }
 
 bool Directory::find_entry(const std::string& name, DirectoryEntry& entry) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard lock(rw_lock_);
 
-    auto it = std::find_if(entries_.begin(), entries_.end(),
+    const auto it = std::find_if(entries_.begin(), entries_.end(),
                           [&name](const DirectoryEntry& e) {
                               return std::strcmp(e.name, name.c_str()) == 0;
                           });
@@ -69,17 +67,20 @@ bool Directory::find_entry(const std::string& name, DirectoryEntry& entry) {
 }
 
 std::vector<DirectoryEntry> Directory::list_entries() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard lock(rw_lock_);
+
     return entries_;
 }
 
 bool Directory::is_empty() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard lock(rw_lock_);
+
     return entries_.empty();
 }
 
 size_t Directory::get_entry_count() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard lock(rw_lock_);
+
     return entries_.size();
 }
 
@@ -88,14 +89,14 @@ uint32_t Directory::get_inode_id() const {
 }
 
 std::vector<uint8_t> Directory::serialize() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard lock(rw_lock_);
 
     std::vector<uint8_t> data;
-    size_t total_size = sizeof(uint32_t) + entries_.size() * sizeof(DirectoryEntry);
+    const size_t total_size = sizeof(uint32_t) + entries_.size() * sizeof(DirectoryEntry);
     data.resize(total_size);
 
     // 写入目录项数量
-    uint32_t count = static_cast<uint32_t>(entries_.size());
+    const uint32_t count = static_cast<uint32_t>(entries_.size());
     std::memcpy(data.data(), &count, sizeof(count));
 
     // 写入目录项数据
@@ -108,7 +109,7 @@ std::vector<uint8_t> Directory::serialize() const {
 }
 
 bool Directory::deserialize(const std::vector<uint8_t>& data) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::WriteGuard lock(rw_lock_);  // 使用写锁
 
     if (data.size() < sizeof(uint32_t)) {
         return false;
@@ -119,7 +120,7 @@ bool Directory::deserialize(const std::vector<uint8_t>& data) {
     std::memcpy(&count, data.data(), sizeof(count));
 
     // 验证数据大小
-    size_t expected_size = sizeof(uint32_t) + count * sizeof(DirectoryEntry);
+    const size_t expected_size = sizeof(uint32_t) + count * sizeof(DirectoryEntry);
     if (data.size() != expected_size || count > MAX_ENTRIES) {
         return false;
     }
@@ -138,7 +139,7 @@ bool Directory::deserialize(const std::vector<uint8_t>& data) {
 }
 
 bool Directory::validate() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    ReadWriteLock::ReadGuard lock(rw_lock_);
 
     // 检查目录项数量限制
     if (entries_.size() > MAX_ENTRIES) {
