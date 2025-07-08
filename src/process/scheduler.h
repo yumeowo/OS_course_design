@@ -10,6 +10,9 @@
 #include <chrono>
 #include <string>
 
+#define MAX_PROCESSES 8         // 最大进程数
+#define TIME_SLICE_MS 100       // 时间片（毫秒）
+
 enum class ProcessState {
     READY,      // 就绪
     RUNNING,    // 运行
