@@ -216,11 +216,6 @@ bool INodeManager::delete_inode(const uint32_t inode_id) {
     INode node;
     if (!read_inode(inode_id, &node)) return false;
 
-    // 如果是目录，检查是否为空
-    if (node.type == FS_DIRECTORY && !is_directory_empty(inode_id)) {
-        return false;
-    }
-
     // 从父目录移除
     if (node.parent_id != inode_id) { // 不是根目录
         remove_directory_entry(node.parent_id, node.name);
@@ -321,13 +316,6 @@ uint32_t INodeManager::calculate_blocks_needed(const uint32_t size)
     return (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
 }
 
-bool INodeManager::validate_inode(const INode* node)
-{
-    return node->id < MAX_FILES && 
-           (node->type == FS_FILE || node->type == FS_DIRECTORY) &&
-           node->block_count > 0;
-}
-
 int32_t INodeManager::find_inode(const uint32_t parent_id, const std::string& name) const
 {
     const std::shared_ptr<Directory> dir = get_directory(parent_id);
@@ -347,10 +335,9 @@ uint32_t INodeManager::get_total_inodes() const {
     return inode_count_;
 }
 
-int32_t INodeManager::resolve_path(const std::string& path) const {
-    const std::string normalized = normalize_path(path);
+int32_t INodeManager::resolve_path(const std::string& normalized) const {
 
-    if (normalized == "/" || normalized.empty()) {
+    if (normalized == "/") {
         return ROOT_INODE_ID;
     }
 
@@ -358,10 +345,6 @@ int32_t INodeManager::resolve_path(const std::string& path) const {
     int32_t current_inode = ROOT_INODE_ID;
 
     for (const auto& component : components) {
-        if (component.empty() || component == "." || component == "..") {
-            continue;
-        }
-
         // 查找子目录
         const auto dir = get_directory(current_inode);
         if (!dir) {
@@ -379,8 +362,7 @@ int32_t INodeManager::resolve_path(const std::string& path) const {
     return current_inode;
 }
 
-bool INodeManager::create_file(const std::string& path, const std::string& content) {
-    const std::string normalized = normalize_path(path);
+bool INodeManager::create_file(const std::string& normalized, const std::string& content) {
 
     // 提取目录和文件名
     const size_t last_slash = normalized.find_last_of('/');
@@ -403,7 +385,8 @@ bool INodeManager::create_file(const std::string& path, const std::string& conte
     }
 
     // 创建文件inode
-    const int32_t file_inode = create_inode(parent_inode, FS_FILE, filename, content.size());
+    const size_t file_size = content.size() == 0 ? 1 : content.size();
+    const int32_t file_inode = create_inode(parent_inode, FS_FILE, filename, file_size);
     if (file_inode == -1) {
         return false;
     }
@@ -495,11 +478,11 @@ bool INodeManager::write_file(const std::string& path, const std::string& conten
     return write_file_data(inode_id, content);
 }
 
-std::vector<FileInfo> INodeManager::list_directory(const std::string& path) const
+std::vector<FileInfo> INodeManager::list_directory(const std::string& normalized) const
 {
     std::vector<FileInfo> result;
 
-    const int32_t dir_inode = resolve_path(path);
+    const int32_t dir_inode = resolve_path(normalized);
     if (dir_inode == -1) {
         return result;
     }
@@ -515,7 +498,7 @@ std::vector<FileInfo> INodeManager::list_directory(const std::string& path) cons
         if (read_inode(entry.inode_id, &inode)) {
             FileInfo info;
             info.name = entry.name;
-            info.path = path + "/" + entry.name;
+            info.path = normalized + "/" + entry.name;
             info.is_directory = (inode.type == FS_DIRECTORY);
             info.size = inode.size;
             info.create_time = inode.create_time;
@@ -555,11 +538,6 @@ FileInfo INodeManager::get_file_info(const std::string& path) const
     info.inode_id = inode.id;
 
     return info;
-}
-
-bool INodeManager::file_exists(const std::string& path) const
-{
-    return resolve_path(path) != -1;
 }
 
 // 私有辅助方法实现
@@ -631,18 +609,21 @@ bool INodeManager::save_directory_content(const uint32_t dir_id, const Directory
     }
 
     // 准备写入数据
-    std::vector<uint8_t> block_data(BLOCK_SIZE, 0);
-    const size_t data_size = dir_data.size();
+    // Directories currently use only one block. inode.size is the size of dir_data.
+    // The block should contain exactly dir_data.
+    if (dir_data.size() > BLOCK_SIZE) {
+        std::cerr << "Error: Directory content size (" << dir_data.size()
+                  << " bytes) exceeds block size (" << BLOCK_SIZE << " bytes)." << std::endl;
+        // This indicates a need for multi-block directory support or larger block_count for the directory.
+        // For now, this is an error condition.
+        return false;
+    }
 
-    // 写入第一个块的大小信息
-    *reinterpret_cast<uint32_t*>(block_data.data()) = data_size;
-
-    // 复制目录数据
-    const size_t copy_size = std::min(data_size, BLOCK_SIZE - sizeof(uint32_t));
-    std::memcpy(block_data.data() + sizeof(uint32_t), dir_data.data(), copy_size);
+    std::vector<uint8_t> block_content(BLOCK_SIZE, 0); // Initialize with zeros
+    std::memcpy(block_content.data(), dir_data.data(), dir_data.size());
 
     // 写入数据块
-    if (!disk_->write_block(inode.start_block, block_data.data())) {
+    if (!disk_->write_block(inode.start_block, block_content.data())) {
         std::cerr << "Error: 写入目录数据块失败" << std::endl;
         return false;
     }
@@ -694,7 +675,17 @@ std::vector<std::string> INodeManager::split_path(const std::string& path) {
     std::string component;
 
     while (std::getline(ss, component, '/')) {
-        if (!component.empty()) {
+        if (component.empty() || component == ".") {
+            // Skip empty parts (e.g., from '//') or current directory '.'
+            continue;
+        }
+        if (component == "..") {
+            // Go up one level
+            if (!components.empty()) {
+                components.pop_back();
+            }
+            // If components is empty, ".." at root level is still root.
+        } else {
             components.push_back(component);
         }
     }
@@ -947,38 +938,6 @@ bool INodeManager::directory_exists(const std::string& path) const
     return inode.type == FS_DIRECTORY;
 }
 
-std::string INodeManager::get_absolute_path(const uint32_t inode_id) const
-{
-    if (inode_id == ROOT_INODE_ID) {
-        return "/";
-    }
-
-    std::vector<std::string> path_components;
-    uint32_t current_id = inode_id;
-
-    while (current_id != ROOT_INODE_ID) {
-        INode inode;
-        if (!read_inode(current_id, &inode)) {
-            return "";
-        }
-
-        path_components.push_back(inode.name);
-        current_id = inode.parent_id;
-
-        // 防止循环引用
-        if (path_components.size() > MAX_FILES) {
-            return "";
-        }
-    }
-
-    std::string result = "";
-    for (auto it = path_components.rbegin(); it != path_components.rend(); ++it) {
-        result += "/" + *it;
-    }
-
-    return result.empty() ? "/" : result;
-}
-
 void INodeManager::cache_directory(const uint32_t dir_id, std::unique_ptr<Directory> dir) const {
     LockGuard<SimpleMutex> lock(cache_mutex_);
     directory_cache_[dir_id] = std::move(dir);
@@ -1015,6 +974,10 @@ bool INodeManager::delete_directory_recursive(const uint32_t dir_id) {
 
     // 递归删除所有子目录和文件
     for (const auto& entry : entries) {
+        if (entry.name == "." || entry.name == "..") {
+            continue; // 跳过当前目录和父目录
+        }
+
         INode child_inode;
         if (!read_inode(entry.inode_id, &child_inode)) {
             continue;

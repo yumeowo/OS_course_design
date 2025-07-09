@@ -35,36 +35,6 @@ bool SimpleFileSystem::format(const std::string& disk_file, const size_t size_mb
         return false;
     }
 
-    // 初始化位图
-    bitmap_ = std::make_unique<FreeBitmap>();
-
-    bitmap_->initialize();
-
-    // 创建缓存管理器
-    cache_ = std::make_unique<CacheManager>(disk_.get());
-
-
-    // 创建inode管理器
-    inode_manager_ = std::make_unique<INodeManager>(disk_.get(), bitmap_.get());
-    if (!inode_manager_->initialize()) {
-        disk_.reset();
-        bitmap_.reset();
-        cache_.reset();
-        inode_manager_.reset();
-        return false;
-    }
-
-    // 创建根目录
-    if (!inode_manager_->create_root_directory()) {
-        disk_.reset();
-        bitmap_.reset();
-        cache_.reset();
-        inode_manager_.reset();
-        return false;
-    }
-
-    // 保存磁盘文件名
-    disk_file_ = disk_file;
     std::cout << "格式化完成：" << disk_file << " (" << size_mb << "MB)" << std::endl;
 
     return true;
@@ -85,6 +55,11 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
 
     // 初始化位图
     bitmap_ = std::make_unique<FreeBitmap>();
+
+    bitmap_->initialize();
+
+    // 初始化位图
+    bitmap_ = std::make_unique<FreeBitmap>();
     if (!bitmap_->load(disk_.get())) {
         disk_.reset();
         bitmap_.reset();
@@ -94,9 +69,19 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
     // 创建缓存管理器
     cache_ = std::make_unique<CacheManager>(disk_.get());
 
+
     // 创建inode管理器
     inode_manager_ = std::make_unique<INodeManager>(disk_.get(), bitmap_.get());
     if (!inode_manager_->initialize()) {
+        disk_.reset();
+        bitmap_.reset();
+        cache_.reset();
+        inode_manager_.reset();
+        return false;
+    }
+
+    // 创建根目录
+    if (!inode_manager_->create_root_directory()) {
         disk_.reset();
         bitmap_.reset();
         cache_.reset();
@@ -158,22 +143,21 @@ bool SimpleFileSystem::change_directory(const std::string& path) {
 }
 
 // 创建文件
-int SimpleFileSystem::create_file(const std::string& path, const std::string& content) {
+int SimpleFileSystem::create_file(const std::string& normalized, const std::string& content) {
     if (!mounted_) {
         return -1;
     }
 
-    const std::string normalized_path = normalize_path(path);
-    if (!is_valid_filename(normalized_path.substr(normalized_path.find_last_of('/') + 1))) {
+    if (!is_valid_filename(normalized.substr(normalized.find_last_of('/') + 1))) {
         return -2; // 无效文件名
     }
 
-    if (is_file_protected(normalized_path)) {
+    if (is_file_protected(normalized)) {
         return -3; // 文件被占用
     }
 
     // 创建文件
-    if (!inode_manager_->create_file(normalized_path, content)) {
+    if (!inode_manager_->create_file(normalized, content)) {
         return -4; // 创建失败
     }
 
@@ -181,24 +165,23 @@ int SimpleFileSystem::create_file(const std::string& path, const std::string& co
 }
 
 // 删除文件
-int SimpleFileSystem::delete_file(const std::string& path) {
+int SimpleFileSystem::delete_file(const std::string& normalized) {
     if (!mounted_) {
         return -1;
     }
 
-    const std::string normalized_path = normalize_path(path);
-    if (is_file_protected(normalized_path)) {
+    if (is_file_protected(normalized)) {
         return -2; // 文件被占用
     }
 
     // 获取文件信息确认是文件不是目录
-    const FileInfo info = inode_manager_->get_file_info(normalized_path);
+    const FileInfo info = inode_manager_->get_file_info(normalized);
     if (info.inode_id == 0 || info.is_directory) {
         return -3; // 文件不存在或是目录
     }
 
     // 删除文件
-    if (!inode_manager_->delete_file(normalized_path)) {
+    if (!inode_manager_->delete_file(normalized)) {
         return -4; // 删除失败
     }
 
@@ -218,26 +201,6 @@ int SimpleFileSystem::read_file(const std::string& path, std::string& content) {
 
     // 读取文件内容
     const bool success = inode_manager_->read_file(normalized_path, content);
-
-    // 减少引用计数
-    close_file(normalized_path);
-
-    return success ? 0 : -2;
-}
-
-// 读取文件指定块
-int SimpleFileSystem::read_file_block(const std::string& path, const uint32_t block_index, std::string& content) {
-    if (!mounted_) {
-        return -1;
-    }
-
-    const std::string normalized_path = normalize_path(path);
-
-    // 增加引用计数
-    open_file(normalized_path);
-
-    // 读取文件块
-    const bool success = inode_manager_->read_file_block(normalized_path, block_index, content);
 
     // 减少引用计数
     close_file(normalized_path);
@@ -271,30 +234,6 @@ int SimpleFileSystem::write_file(const std::string& path, const std::string& con
     return 0; // 成功
 }
 
-// 写入文件指定块
-int SimpleFileSystem::write_file_block(const std::string& path, const uint32_t block_index, const std::string& content) {
-    if (!mounted_) {
-        return -1;
-    }
-
-    const std::string normalized_path = normalize_path(path);
-    if (is_file_protected(normalized_path)) {
-        return -2; // 文件被占用
-    }
-
-    // 写入文件块
-    if (!inode_manager_->write_file_block(normalized_path, block_index, content)) {
-        return -3; // 写入失败
-    }
-
-    return 0; // 成功
-}
-
-// 修改文件内容
-int SimpleFileSystem::modify_file_content(const std::string& path, const std::string& new_content) {
-    return write_file(path, new_content);
-}
-
 // 创建目录
 int SimpleFileSystem::create_directory(const std::string& parent_path, const std::string& name) const
 {
@@ -315,28 +254,26 @@ int SimpleFileSystem::create_directory(const std::string& parent_path, const std
 }
 
 // 删除目录
-int SimpleFileSystem::delete_directory(const std::string& path) {
+int SimpleFileSystem::delete_directory(const std::string& normalized) {
     if (!mounted_) {
         return -1;
     }
 
-    const std::string normalized_path = normalize_path(path);
-
     // 获取目录信息确认是目录不是文件
-    const FileInfo info = inode_manager_->get_file_info(normalized_path);
+    const FileInfo info = inode_manager_->get_file_info(normalized);
     if (info.inode_id == 0 || !info.is_directory) {
         return -2; // 目录不存在或是文件
     }
 
     // 检查是否有打开的文件在此目录下
     for (const auto& [file_path, count] : open_files_) {
-        if (file_path.find(normalized_path) == 0) {
+        if (file_path.find(normalized) == 0) {
             return -3; // 目录下有文件被占用
         }
     }
 
     // 删除目录
-    if (!inode_manager_->delete_directory(normalized_path)) {
+    if (!inode_manager_->delete_directory(normalized)) {
         return -4; // 删除失败
     }
 
@@ -344,7 +281,7 @@ int SimpleFileSystem::delete_directory(const std::string& path) {
 }
 
 // 列出目录内容
-std::vector<FileInfo> SimpleFileSystem::list_directory(const std::string& path) const
+std::vector<FileInfo> SimpleFileSystem::list_directory(const std::string& path)
 {
     if (!mounted_) {
         return {};
@@ -354,14 +291,8 @@ std::vector<FileInfo> SimpleFileSystem::list_directory(const std::string& path) 
     return inode_manager_->list_directory(normalized_path);
 }
 
-// 查询目录信息
-std::vector<FileInfo> SimpleFileSystem::query_directory_info(const std::string& path) const
-{
-    return list_directory(path);
-}
-
 // 获取文件信息
-FileInfo SimpleFileSystem::get_file_info(const std::string& path) const
+FileInfo SimpleFileSystem::get_file_info(const std::string& path)
 {
     if (!mounted_) {
         return {};
@@ -455,30 +386,64 @@ void SimpleFileSystem::print_cache_status() const
 }
 
 // 规范化路径（处理"."和".."）
-std::string SimpleFileSystem::normalize_path(const std::string& path)
-{
+std::string SimpleFileSystem::normalize_path(const std::string& path) {
+    std::string full_path;
+
+    if (path.empty()) {
+        // If path is empty, consider it relative to current_path_
+        // However, commands should generally provide '.', current_path_, or a specific path.
+        // For robustness, let's treat empty as current_path_ itself.
+        full_path = current_path_;
+    } else if (path[0] == '/') {
+        // Absolute path
+        full_path = path;
+    } else {
+        // Relative path
+        if (current_path_ == "/") {
+            full_path = "/" + path;
+        } else {
+            full_path = current_path_ + "/" + path;
+        }
+    }
+
     std::vector<std::string> components;
-    std::stringstream ss(path);
+    std::stringstream ss(full_path);
     std::string item;
 
-    // 分割路径
+    // Split path by '/'
+    // The first component from stringstream will be empty if full_path starts with '/', skip it.
+    if (!full_path.empty() && full_path[0] == '/') {
+        // consume the first empty part from leading '/'
+        std::getline(ss, item, '/');
+    }
+
     while (std::getline(ss, item, '/')) {
-        if (item.empty() || item == ".") continue;
+        if (item.empty() || item == ".") {
+            // Skip empty parts (e.g., from '//') or current directory '.'
+            continue;
+        }
         if (item == "..") {
-            if (!components.empty()) components.pop_back();
+            // Go up one level
+            if (!components.empty()) {
+                components.pop_back();
+            }
+            // If components is empty, ".." at root level is still root.
         } else {
             components.push_back(item);
         }
     }
 
-    // 重建路径
-    std::string result = "/";
-    for (const auto& comp : components) {
-        if (!result.empty() && result.back() != '/') result += '/';
-        result += comp;
+    // Reconstruct the path
+    if (components.empty()) {
+        return "/"; // Root directory
     }
 
-    return result.empty() ? "/" : result;
+    std::string result = "";
+    for (const auto& comp : components) {
+        result += "/" + comp;
+    }
+
+    return result;
 }
 
 
@@ -608,7 +573,7 @@ void SimpleFileSystem::cmd_pwd() const
     std::cout << current_path_ << std::endl;
 }
 
-void SimpleFileSystem::cmd_ls(const std::vector<std::string>& args) const {
+void SimpleFileSystem::cmd_ls(const std::vector<std::string>& args) {
     const std::string path = args.size() > 1 ? args[1] : ".";
     const std::string full_path = normalize_path(path);
 
@@ -641,7 +606,7 @@ void SimpleFileSystem::cmd_cache_info() const {
     print_cache_status();
 }
 
-void SimpleFileSystem::cmd_file_info(const std::vector<std::string>& args) const {
+void SimpleFileSystem::cmd_file_info(const std::vector<std::string>& args) {
     if (args.size() < 2) {
         std::cout << "用法: stat <文件路径>" << std::endl;
         return;
@@ -670,7 +635,7 @@ void SimpleFileSystem::cmd_touch(const std::vector<std::string>& args) {
         return;
     }
 
-    const int result = create_file(args[1], "");
+    const int result = create_file(normalize_path(args[1]), "");
 
     if (result == 0) {
         std::cout << "文件创建成功: " << args[1] << std::endl;
@@ -698,20 +663,24 @@ void SimpleFileSystem::cmd_cat(const std::vector<std::string>& args) {
 
 // echo命令
 void SimpleFileSystem::cmd_echo(const std::vector<std::string>& args) {
-    if (args.size() < 3 || args[1] != ">") {
-        std::cout << "用法: echo > <文件路径> <内容>" << std::endl;
+    if (args.size() < 3 || args[args.size() - 2] != ">") {
+        std::cout << "用法: echo <内容> > <文件路径>" << std::endl;
         return;
     }
 
     std::string content;
     if (args.size() > 3) {
-        for (size_t i = 3; i < args.size(); ++i) {
-            if (i > 3) content += " ";
+        for (size_t i = 1; i < args.size(); ++i) {
+            if (args[i] == ">") {
+                break; // 停止在重定向符号
+            }
+
+            if (i > 1) content += " ";
             content += args[i];
         }
     }
 
-    const int result = write_file(args[2], content);
+    const int result = write_file(args.back(), content);
 
     if (result == 0) {
         std::cout << "写入文件成功: " << args[2] << std::endl;
@@ -727,7 +696,7 @@ void SimpleFileSystem::cmd_rm(const std::vector<std::string>& args) {
         return;
     }
 
-    const int result = delete_file(args[1]);
+    const int result = delete_file(normalize_path(args[1]));
 
     if (result == 0) {
         std::cout << "文件删除成功: " << args[1] << std::endl;
@@ -737,34 +706,23 @@ void SimpleFileSystem::cmd_rm(const std::vector<std::string>& args) {
 }
 
 // mkdir命令
-void SimpleFileSystem::cmd_mkdir(const std::vector<std::string>& args) const
+void SimpleFileSystem::cmd_mkdir(const std::vector<std::string>& args)
 {
     if (args.size() < 2) {
         std::cout << "用法: mkdir <目录路径>" << std::endl;
         return;
     }
 
-    const std::string path = args[1];
-    const size_t last_slash = path.find_last_of('/');
+    const std::string normalized = normalize_path(args[1]);
+    const size_t last_slash = normalized.find_last_of('/');
 
-    std::string parent_path;
-    std::string dir_name;
-
-    if (last_slash == std::string::npos) {
-        parent_path = "/";
-        dir_name = path;
-    } else {
-        parent_path = path.substr(0, last_slash);
-        if (parent_path.empty()) {
-            parent_path = "/";
-        }
-        dir_name = path.substr(last_slash + 1);
-    }
+    const std::string parent_path = (last_slash == 0) ? "/" : normalized.substr(0, last_slash);;
+    const std::string dir_name = normalized.substr(last_slash + 1);;
 
     const int result = create_directory(parent_path, dir_name);
 
     if (result == 0) {
-        std::cout << "目录创建成功: " << path << std::endl;
+        std::cout << "目录创建成功: " << normalized << std::endl;
     } else {
         std::cout << "创建目录失败，错误码: " << result << std::endl;
     }
@@ -777,7 +735,8 @@ void SimpleFileSystem::cmd_rmdir(const std::vector<std::string>& args) {
         return;
     }
 
-    const int result = delete_directory(args[1]);
+    const std::string normalized = normalize_path(args[1]);
+    const int result = delete_directory(normalized);
 
     if (result == 0) {
         std::cout << "目录删除成功: " << args[1] << std::endl;
@@ -828,19 +787,19 @@ void SimpleFileSystem::cmd_edit(const std::vector<std::string>& args) {
 // help命令
 void SimpleFileSystem::cmd_help() {
     std::cout << "可用命令:" << std::endl;
-    std::cout << "  cd <目录>           - 切换当前目录" << std::endl;
-    std::cout << "  pwd                 - 显示当前目录" << std::endl;
-    std::cout << "  df                  - 显示磁盘使用情况" << std::endl;
-    std::cout << "  cache               - 显示缓存状态" << std::endl;
-    std::cout << "  stat <文件>         - 显示文件或目录信息" << std::endl;
-    std::cout << "  ls [目录]            - 列出目录内容" << std::endl;
-    std::cout << "  touch <文件>         - 创建空文件" << std::endl;
-    std::cout << "  cat <文件>           - 显示文件内容" << std::endl;
-    std::cout << "  echo > <文件> <内容>  - 写入内容到文件" << std::endl;
-    std::cout << "  rm <文件>            - 删除文件" << std::endl;
-    std::cout << "  mkdir <目录>         - 创建目录" << std::endl;
-    std::cout << "  rmdir <目录>         - 删除目录" << std::endl;
-    std::cout << "  edit <文件>          - 编辑文件内容" << std::endl;
-    std::cout << "  help                 - 显示帮助信息" << std::endl;
-    std::cout << "  exit                 - 退出" << std::endl;
+    std::cout << "  cd <目录>              - 切换当前目录" << std::endl;
+    std::cout << "  pwd                   - 显示当前目录" << std::endl;
+    std::cout << "  df                    - 显示磁盘使用情况" << std::endl;
+    std::cout << "  cache                 - 显示缓存状态" << std::endl;
+    std::cout << "  stat <文件>            - 显示文件或目录信息" << std::endl;
+    std::cout << "  ls [目录]              - 列出目录内容" << std::endl;
+    std::cout << "  touch <文件>           - 创建空文件" << std::endl;
+    std::cout << "  cat <文件>             - 显示文件内容" << std::endl;
+    std::cout << "  echo <内容> > <文件>    - 写入内容到文件" << std::endl;
+    std::cout << "  rm <文件>              - 删除文件" << std::endl;
+    std::cout << "  mkdir <目录>           - 创建目录" << std::endl;
+    std::cout << "  rmdir <目录>           - 删除目录" << std::endl;
+    std::cout << "  edit <文件>            - 编辑文件内容" << std::endl;
+    std::cout << "  help                  - 显示帮助信息" << std::endl;
+    std::cout << "  exit                  - 退出" << std::endl;
 }

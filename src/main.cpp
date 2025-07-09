@@ -19,7 +19,6 @@ void print_welcome_message() {
 
 int main() {
     SimpleFileSystem fs;
-    bool first_run = false;
 
     std::cout << "正在检查虚拟磁盘文件...\n";
 
@@ -30,22 +29,22 @@ int main() {
             std::cerr << "错误：无法创建虚拟磁盘文件！\n";
             return 1;
         }
+        std::cout << "虚拟磁盘文件创建成功！\n";
+    }
 
-        if (!fs.mount(DISK_FILE)) {
-            std::cerr << "错误：无法挂载新创建的虚拟磁盘！\n";
-            return 1;
-        }
-
-        // 创建一些基础目录
-        fs.create_directory("/", "documents");
-        fs.create_directory("/", "temp");
-        first_run = true;
+    if (!fs.mount(DISK_FILE))
+    {
+        std::cerr << "错误：无法挂载虚拟磁盘文件！\n";
+        return 1;
     }
 
     std::cout << "虚拟磁盘挂载成功！\n";
-    if (first_run) {
-        std::cout << "已创建基础目录结构。\n";
-    }
+
+    // 创建一些基础目录
+    fs.create_directory("/", "documents");
+    fs.create_directory("/", "temp");
+
+    std::cout << "基础目录已创建：/documents 和 /temp\n";
 
     print_welcome_message();
 

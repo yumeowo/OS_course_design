@@ -65,7 +65,6 @@ public:
     // 辅助功能
     bool resize_inode(uint32_t inode_id, uint32_t new_size) const;
     uint32_t get_total_inodes() const;
-    static uint32_t get_root_inode_id() { return ROOT_INODE_ID; }
 
     // 文件系统操作
     bool create_file(const std::string& path, const std::string& content = "");
@@ -82,12 +81,10 @@ public:
     // 目录操作
     std::vector<FileInfo> list_directory(const std::string& path) const;
     FileInfo get_file_info(const std::string& path) const;
-    bool file_exists(const std::string& path) const;
     bool directory_exists(const std::string& path) const;
 
     // 路径解析
-    int32_t resolve_path(const std::string& path) const;
-    std::string get_absolute_path(uint32_t inode_id) const;
+    int32_t resolve_path(const std::string& normalized) const;
 
 private:
     // 添加同步原语
@@ -108,7 +105,6 @@ private:
 
     // 私有方法
     static uint32_t calculate_blocks_needed(uint32_t size);
-    static bool validate_inode(const INode* node);
     std::vector<bool> inode_used_;
 
     // 目录相关的私有方法
