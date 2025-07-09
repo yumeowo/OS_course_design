@@ -275,3 +275,56 @@ void FreeBitmap::mark_block_used(const uint32_t block_id) {
     if (block_id >= total_blocks_) return;
     set_block_status(block_id, true);
 }
+
+bool FreeBitmap::initialize(VirtualDisk* disk) {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
+    // 获取磁盘总块数
+    total_blocks_ = disk->get_total_blocks();
+    if (total_blocks_ == 0) {
+        return false;
+    }
+
+    // 重置位图
+    bitmap_.resize((total_blocks_ + 7) / 8, 0);
+    free_blocks_ = total_blocks_;
+
+    // 写入位图到磁盘第一个块
+    return save(disk);
+}
+
+bool FreeBitmap::load(VirtualDisk* disk) {
+    ReadWriteLock::WriteGuard guard(rw_lock_);
+
+    // 获取磁盘总块数
+    total_blocks_ = disk->get_total_blocks();
+    if (total_blocks_ == 0) {
+        return false;
+    }
+
+    // 调整位图大小
+    const size_t bitmap_size = (total_blocks_ + 7) / 8;
+    bitmap_.resize(bitmap_size);
+
+    // 从磁盘第一个块读取位图
+    if (!disk->read_block(0, bitmap_.data())) {
+        return false;
+    }
+
+    // 重新计算空闲块数
+    free_blocks_ = 0;
+    for (uint32_t block = 0; block < total_blocks_; ++block) {
+        if (is_block_free(block)) {
+            free_blocks_++;
+        }
+    }
+
+    return true;
+}
+
+bool FreeBitmap::save(VirtualDisk* disk) const {
+    ReadWriteLock::ReadGuard guard(rw_lock_);
+
+    // 将位图写入磁盘第一个块
+    return disk->write_block(0, bitmap_.data());
+}

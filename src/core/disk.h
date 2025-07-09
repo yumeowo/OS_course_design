@@ -5,7 +5,7 @@
 #ifndef DISK_H
 #define DISK_H
 
-#define DISK_SIZE 256000000     // 磁盘大小 256MB
+#define DISK_SIZE 256     // 磁盘大小 256MB
 #define BLOCK_SIZE 4096         // 磁盘块大小 4KiB
 
 #include <fstream>
@@ -22,7 +22,7 @@ class VirtualDisk {
     mutable ReadWriteLock disk_lock_; // 磁盘操作互斥锁
 
 public:
-    VirtualDisk(std::string filename, const size_t size_mb, const size_t block_size = BLOCK_SIZE)
+    explicit VirtualDisk(std::string filename, const size_t size_mb = DISK_SIZE, const size_t block_size = BLOCK_SIZE)
         : disk_file_(std::move(filename)), disk_size_(size_mb * 1024 * 1024), block_size_(block_size) {
         total_blocks_ = static_cast<uint32_t>(disk_size_ / block_size_);
     }
@@ -31,6 +31,8 @@ public:
     bool read_block(uint32_t block_no, void* buffer);
     bool write_block(uint32_t block_no, const void* buffer);
     bool copy_blocks(uint32_t src_block, uint32_t dst_block, uint32_t count);
+    bool open(const std::string& filename);
+    uint32_t get_total_blocks() const;
 };
 
 #endif //DISK_H

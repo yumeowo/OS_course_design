@@ -3,6 +3,8 @@
 
 #include <vector>
 
+#include "disk.h"
+#include "directory.h"
 #include "../process/sync.h"
 
 /**
@@ -54,7 +56,7 @@ public:
      * 构造函数
      * @param total_blocks 总块数
      */
-    explicit FreeBitmap(uint32_t total_blocks);
+    explicit FreeBitmap(uint32_t total_blocks = MAX_FILES);
 
     /**
      * 析构函数
@@ -170,6 +172,9 @@ public:
     }
 
     void mark_block_used(uint32_t block_id);
+    bool initialize(VirtualDisk* disk);
+    bool load(VirtualDisk* disk);
+    bool save(VirtualDisk* disk) const;
 };
 
 #endif //BITMAP_H

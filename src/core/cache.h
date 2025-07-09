@@ -4,7 +4,6 @@
 #include <queue>
 #include <mutex>
 #include <unordered_map>
-#include <ctime>
 
 #include "disk.h"
 #include "../process/sync.h"
@@ -20,15 +19,16 @@ struct CachePage {
 
 class CacheManager {
 public:
-    explicit CacheManager(VirtualDisk& disk, size_t page_count = CACHE_PAGES, size_t block_size = 4096);
+    explicit CacheManager(VirtualDisk* disk, size_t page_count = CACHE_PAGES, size_t block_size = 4096);
     ~CacheManager();
 
     bool read_block(uint32_t block_no, void* buffer);
     bool write_block(uint32_t block_no, const void* buffer);
     void flush_all();
+    void print_status() const;
 
 private:
-    VirtualDisk& disk_;
+    VirtualDisk* disk_;
     std::vector<CachePage> pages_;
     std::queue<uint32_t> fifo_queue_;
     std::unordered_map<uint32_t, uint32_t> block_to_page_;
