@@ -13,7 +13,7 @@ FreeBitmap::FreeBitmap(const uint32_t total_blocks)
 }
 
 void FreeBitmap::initialize() {
-    ReadWriteLock::ReadGuard guard(rw_lock_);
+    // ReadWriteLock::ReadGuard guard(rw_lock_);
 
     // 重置所有位为0（空闲状态）
     std::fill(bitmap_.begin(), bitmap_.end(), 0);
@@ -93,7 +93,7 @@ uint32_t FreeBitmap::find_consecutive_free_blocks(const uint32_t count) const {
 }
 
 bool FreeBitmap::allocate_block(uint32_t& block_no) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (free_blocks_ == 0) {
         return false;  // 没有空闲块
@@ -111,7 +111,7 @@ bool FreeBitmap::allocate_block(uint32_t& block_no) {
 }
 
 bool FreeBitmap::allocate_consecutive_blocks(const uint32_t count, uint32_t& start_block) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (count == 0) {
         return false;
@@ -136,7 +136,7 @@ bool FreeBitmap::allocate_consecutive_blocks(const uint32_t count, uint32_t& sta
 }
 
 void FreeBitmap::free_block(const uint32_t block_no) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (block_no >= total_blocks_) {
         return;  // 无效的块号
@@ -146,7 +146,7 @@ void FreeBitmap::free_block(const uint32_t block_no) {
 }
 
 void FreeBitmap::free_consecutive_blocks(const uint32_t start_block, const uint32_t count) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (start_block >= total_blocks_ || count == 0) {
         return;  // 无效的起始块号或计数
@@ -162,7 +162,7 @@ void FreeBitmap::free_consecutive_blocks(const uint32_t start_block, const uint3
 
 bool FreeBitmap::is_block_allocated(const uint32_t block_no) const
 {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (block_no >= total_blocks_) {
         return false;  // 无效的块号
@@ -178,7 +178,7 @@ void FreeBitmap::print_status() const
     uint32_t total, free;
     size_t sample_size;
     {
-        ReadWriteLock::WriteGuard guard(rw_lock_);
+        // ReadWriteLock::WriteGuard guard(rw_lock_);
 
         // 创建局部快照，避免长时间持有锁
         total = total_blocks_;
@@ -212,7 +212,7 @@ void FreeBitmap::print_status() const
 
 bool FreeBitmap::validate() const
 {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     // 重新计算空闲块数，验证内部状态是否一致
     uint32_t calculated_free_blocks = 0;
@@ -232,7 +232,7 @@ bool FreeBitmap::validate() const
     return is_valid;
 }
 bool FreeBitmap::serialize_to(void* buffer, const size_t buffer_size) const {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (buffer == nullptr || buffer_size == 0) {
         return false;  // 无效的缓冲区
@@ -246,7 +246,7 @@ bool FreeBitmap::serialize_to(void* buffer, const size_t buffer_size) const {
 }
 
 bool FreeBitmap::deserialize_from(const void* buffer, const size_t buffer_size) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     const size_t required_size = bitmap_.size();
     if (buffer_size < required_size) {
@@ -265,14 +265,14 @@ bool FreeBitmap::deserialize_from(const void* buffer, const size_t buffer_size) 
 }
 
 void FreeBitmap::mark_block_used(const uint32_t block_id) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     if (block_id >= total_blocks_) return;
     set_block_status(block_id, true);
 }
 
 bool FreeBitmap::initialize(VirtualDisk* disk) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     // 获取磁盘总块数
     total_blocks_ = disk->get_total_blocks();
@@ -289,7 +289,7 @@ bool FreeBitmap::initialize(VirtualDisk* disk) {
 }
 
 bool FreeBitmap::load(VirtualDisk* disk) {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
+    // ReadWriteLock::WriteGuard guard(rw_lock_);
 
     // 获取磁盘总块数
     total_blocks_ = disk->get_total_blocks();

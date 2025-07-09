@@ -23,15 +23,15 @@ CacheManager::~CacheManager() {
 
 bool CacheManager::read_block(const uint32_t block_no, void* buffer) {
     // 使用读锁，允许多个读操作并发
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
     LockManager::register_lock();
     
     int page_index = find_page(block_no);
     
     // 如果页面不在缓存中，需要升级为写锁
     if (page_index == -1) {
-        lock.~ReadGuard();  // 释放读锁
-        ReadWriteLock::WriteGuard write_lock(rw_lock_);  // 获取写锁
+        // lock.~ReadGuard();  // 释放读锁
+        // ReadWriteLock::WriteGuard write_lock(rw_lock_);  // 获取写锁
 
         // 重新检查，避免竞态条件
         page_index = find_page(block_no);
@@ -68,7 +68,7 @@ bool CacheManager::read_block(const uint32_t block_no, void* buffer) {
 
 bool CacheManager::write_block(const uint32_t block_no, const void* buffer) {
     // 写操作需要写锁
-    ReadWriteLock::WriteGuard lock(rw_lock_);
+    // ReadWriteLock::WriteGuard lock(rw_lock_);
     LockManager::register_lock();
 
     int page_index = find_page(block_no);
@@ -99,7 +99,7 @@ bool CacheManager::write_block(const uint32_t block_no, const void* buffer) {
 }
 
 void CacheManager::flush_all() {
-    ReadWriteLock::WriteGuard lock(rw_lock_);
+    // ReadWriteLock::WriteGuard lock(rw_lock_);
     LockManager::register_lock();
 
     // 写回所有脏页
@@ -114,13 +114,13 @@ void CacheManager::flush_all() {
 
 int CacheManager::find_page(const uint32_t block_no) {
     // 对于快速查找操作，使用自旋锁
-    SpinLock spin_lock;
-    spin_lock.lock();
+    // SpinLock spin_lock;
+    // spin_lock.lock();
 
     const auto it = block_to_page_.find(block_no);
     const int result = (it != block_to_page_.end()) ? it->second : -1;
 
-    spin_lock.unlock();
+    // spin_lock.unlock();
     return result;
 }
 
@@ -164,7 +164,7 @@ void CacheManager::write_back_page(const size_t page_index) {
 
 void CacheManager::print_status() const {
     // 加读锁进行访问
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     // 统计脏页数量和缓存命中情况
     uint32_t dirty_pages = 0;

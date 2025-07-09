@@ -29,9 +29,9 @@ INodeManager::~INodeManager() {
     directory_cache_.clear();
 }
 
-bool INodeManager::initialize() const
+bool INodeManager::initialize()
 {
-    ReadWriteLock::WriteGuard write_guard(inode_lock_);
+    // ReadWriteLock::WriteGuard write_guard(inode_lock_);
 
     // 初始化超级块和inode表
     // 这里简化实现，实际中应该从磁盘读取或初始化

@@ -13,7 +13,7 @@ bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
     disk_file_ = filename;
     disk_size_ = size_mb * 1024 * 1024; // 将MiB转换为字节
 
-    ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘创建操作
+    // ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘创建操作
 
     // 以二进制模式创建文件
     file_stream_.open(disk_file_, std::ios::out | std::ios::binary | std::ios::trunc);
@@ -58,7 +58,7 @@ bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
  * @return 读取成功返回true，失败返回false
  */
 bool VirtualDisk::read_block(const uint32_t block_no, void* buffer) {
-    ReadWriteLock::ReadGuard read_guard(disk_lock_); // 使用读锁保护磁盘读取操作
+    // ReadWriteLock::ReadGuard read_guard(disk_lock_); // 使用读锁保护磁盘读取操作
 
     if (!buffer) {
         std::cerr << "Error: Invalid buffer pointer" << std::endl;
@@ -105,7 +105,7 @@ bool VirtualDisk::read_block(const uint32_t block_no, void* buffer) {
  * @return 写入成功返回true，失败返回false
  */
 bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
-    ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘写入操作
+    // ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘写入操作
 
     if (!buffer) {
         std::cerr << "Error: Invalid buffer pointer" << std::endl;
@@ -148,7 +148,7 @@ bool VirtualDisk::write_block(const uint32_t block_no, const void* buffer) {
 }
 
 bool VirtualDisk::copy_blocks(const uint32_t src_block, const uint32_t dst_block, const uint32_t count) {
-    ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护块复制操作
+    // ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护块复制操作
 
     std::vector<uint8_t> buffer(BLOCK_SIZE);
     for (uint32_t i = 0; i < count; ++i) {
@@ -163,7 +163,7 @@ bool VirtualDisk::copy_blocks(const uint32_t src_block, const uint32_t dst_block
 }
 
 bool VirtualDisk::open(const std::string& filename) {
-    ReadWriteLock::WriteGuard write_guard(disk_lock_);
+    // ReadWriteLock::WriteGuard write_guard(disk_lock_);
 
     disk_file_ = filename;
 
@@ -198,6 +198,6 @@ bool VirtualDisk::open(const std::string& filename) {
 }
 
 uint32_t VirtualDisk::get_total_blocks() const {
-    ReadWriteLock::ReadGuard read_guard(disk_lock_);
+    // ReadWriteLock::ReadGuard read_guard(disk_lock_);
     return total_blocks_;
 }

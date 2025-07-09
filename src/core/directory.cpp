@@ -5,7 +5,7 @@
 Directory::Directory(const uint32_t dir_inode_id) : dir_inode_id_(dir_inode_id) {}
 
 bool Directory::add_entry(const std::string& name, const uint32_t inode_id, const uint8_t type) {
-    ReadWriteLock::WriteGuard lock(rw_lock_);
+    // ReadWriteLock::WriteGuard lock(rw_lock_);
 
     // 检查名称长度
     if (name.empty() || name.length() >= sizeof(DirectoryEntry::name)) {
@@ -35,7 +35,7 @@ bool Directory::add_entry(const std::string& name, const uint32_t inode_id, cons
 }
 
 bool Directory::remove_entry(const std::string& name) {
-    ReadWriteLock::WriteGuard lock(rw_lock_);
+    // ReadWriteLock::WriteGuard lock(rw_lock_);
 
     const auto it = std::find_if(entries_.begin(), entries_.end(),
                           [&name](const DirectoryEntry& entry) {
@@ -51,7 +51,7 @@ bool Directory::remove_entry(const std::string& name) {
 }
 
 bool Directory::find_entry(const std::string& name, DirectoryEntry& entry) {
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     const auto it = std::find_if(entries_.begin(), entries_.end(),
                           [&name](const DirectoryEntry& e) {
@@ -67,19 +67,19 @@ bool Directory::find_entry(const std::string& name, DirectoryEntry& entry) {
 }
 
 std::vector<DirectoryEntry> Directory::list_entries() const {
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     return entries_;
 }
 
 bool Directory::is_empty() const {
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     return entries_.empty();
 }
 
 size_t Directory::get_entry_count() const {
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     return entries_.size();
 }
@@ -89,7 +89,7 @@ uint32_t Directory::get_inode_id() const {
 }
 
 std::vector<uint8_t> Directory::serialize() const {
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     std::vector<uint8_t> data;
     const size_t total_size = sizeof(uint32_t) + entries_.size() * sizeof(DirectoryEntry);
@@ -109,7 +109,7 @@ std::vector<uint8_t> Directory::serialize() const {
 }
 
 bool Directory::deserialize(const std::vector<uint8_t>& data) {
-    ReadWriteLock::WriteGuard lock(rw_lock_);  // 使用写锁
+    // ReadWriteLock::WriteGuard lock(rw_lock_);  // 使用写锁
 
     if (data.size() < sizeof(uint32_t)) {
         return false;
@@ -139,7 +139,7 @@ bool Directory::deserialize(const std::vector<uint8_t>& data) {
 }
 
 bool Directory::validate() const {
-    ReadWriteLock::ReadGuard lock(rw_lock_);
+    // ReadWriteLock::ReadGuard lock(rw_lock_);
 
     // 检查目录项数量限制
     if (entries_.size() > MAX_ENTRIES) {

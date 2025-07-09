@@ -51,7 +51,7 @@ public:
     ~INodeManager();
 
     // 初始化和格式化
-    bool initialize() const;
+    static bool initialize();
     bool create_root_directory();
 
     // 核心 inode 操作
