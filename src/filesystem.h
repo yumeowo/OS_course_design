@@ -29,11 +29,13 @@ private:
     bool mounted_;
     std::string disk_file_;
 
+    std::string current_path_; // 当前工作目录
+
     // 文件保护机制 - 跟踪打开的文件
     std::unordered_map<std::string, int> open_files_; // 文件路径 -> 打开次数
 
     // 内部辅助函数
-    static std::string normalize_path(const std::string& path);
+    std::string normalize_path(const std::string& path) const;
     static bool is_valid_filename(const std::string& name);
     bool is_file_protected(const std::string& path);
 
@@ -56,6 +58,7 @@ public:
     int modify_file_content(const std::string& path, const std::string& new_content);
 
     // 目录操作
+    bool change_directory(const std::string& path);
     int create_directory(const std::string& parent_path, const std::string& name) const;
     int delete_directory(const std::string& path);
     std::vector<FileInfo> list_directory(const std::string& path) const;
@@ -81,16 +84,20 @@ private:
     void handle_command(const std::string& command);
     void cmd_touch(const std::vector<std::string>& args);
     void cmd_ls(const std::vector<std::string>& args) const;
+    void cmd_disk_info() const;
+    void cmd_cache_info() const;
+    void cmd_file_info(const std::vector<std::string>& args) const;
     void cmd_cat(const std::vector<std::string>& args);
     void cmd_echo(const std::vector<std::string>& args);
     void cmd_rm(const std::vector<std::string>& args);
     void cmd_mkdir(const std::vector<std::string>& args) const;
     void cmd_rmdir(const std::vector<std::string>& args);
     void cmd_edit(const std::vector<std::string>& args);
-    void cmd_info(const std::vector<std::string>& args) const;
     static void cmd_help();
 
     static std::vector<std::string> split_command(const std::string& command);
+    void cmd_cd(const std::vector<std::string>& args);
+    void cmd_pwd() const;
 };
 
 #endif //FILESYSTEM_H

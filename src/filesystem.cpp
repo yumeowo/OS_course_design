@@ -11,7 +11,7 @@
 #include <iomanip>
 
 // 构造函数
-SimpleFileSystem::SimpleFileSystem() : mounted_(false) {
+SimpleFileSystem::SimpleFileSystem() : mounted_(false), current_path_("/") {
     // 初始化成员变量
 }
 
@@ -140,6 +140,21 @@ void SimpleFileSystem::unmount() {
     // 标记为未挂载
     mounted_ = false;
     std::cout << "文件系统已卸载" << std::endl;
+}
+
+// cd命令实现
+bool SimpleFileSystem::change_directory(const std::string& path) {
+    if (!mounted_) return false;
+
+    const std::string target_path = normalize_path(path);
+    const FileInfo info = get_file_info(target_path);
+
+    if (info.inode_id == 0 || !info.is_directory) {
+        return false;
+    }
+
+    current_path_ = target_path;
+    return true;
 }
 
 // 创建文件
@@ -440,12 +455,13 @@ void SimpleFileSystem::print_cache_status() const
 }
 
 // 标准化路径
-std::string SimpleFileSystem::normalize_path(const std::string& path) {
+std::string SimpleFileSystem::normalize_path(const std::string& path) const
+{
     if (path.empty()) {
         return "/";
     }
 
-    std::string result = path;
+    std::string result = current_path_ + "/" + path;
 
     // 确保以/开头
     if (result[0] != '/') {
@@ -521,8 +537,19 @@ void SimpleFileSystem::handle_command(const std::string& command) {
 
     const std::string& cmd = args[0];
 
-    if (cmd == "ls") {
+
+    if (cmd == "cd") {
+        cmd_cd(args);
+    } else if (cmd == "ls") {
         cmd_ls(args);
+    } else if (cmd == "pwd") {
+        cmd_pwd();
+    } else if (cmd == "df") {
+        cmd_disk_info();
+    } else if (cmd == "cache") {
+        cmd_cache_info();
+    } else if (cmd == "stat") {
+        cmd_file_info(args);
     } else if (cmd == "touch") {
         cmd_touch(args);
     } else if (cmd == "cat") {
@@ -537,8 +564,6 @@ void SimpleFileSystem::handle_command(const std::string& command) {
         cmd_rmdir(args);
     } else if (cmd == "edit") {
         cmd_edit(args);
-    } else if (cmd == "info") {
-        cmd_info(args);
     } else if (cmd == "help") {
         cmd_help();
     } else {
@@ -573,35 +598,76 @@ std::vector<std::string> SimpleFileSystem::split_command(const std::string& comm
     return args;
 }
 
-// ls命令
-void SimpleFileSystem::cmd_ls(const std::vector<std::string>& args) const
-{
-    std::string path = "/";
-    if (args.size() > 1) {
-        path = args[1];
+// 新增的命令实现
+void SimpleFileSystem::cmd_cd(const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        change_directory("/");
+        return;
     }
 
-    const auto entries = list_directory(path);
+    if (!change_directory(args[1])) {
+        std::cout << "cd: " << args[1] << ": 目录不存在" << std::endl;
+    }
+}
 
+void SimpleFileSystem::cmd_pwd() const
+{
+    std::cout << current_path_ << std::endl;
+}
+
+void SimpleFileSystem::cmd_ls(const std::vector<std::string>& args) const {
+    const std::string path = args.size() > 1 ? args[1] : ".";
+    const std::string full_path = normalize_path(path);
+
+    const auto entries = list_directory(full_path);
     if (entries.empty()) {
-        std::cout << "目录为空或不存在" << std::endl;
-        return;
+        return; // 目录为空时直接返回
     }
 
     std::cout << "类型\t大小\t修改时间\t\t名称" << std::endl;
     std::cout << "----------------------------------------" << std::endl;
 
     for (const auto& entry : entries) {
-        // 格式化时间
         char time_str[32];
         std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S",
-                      std::localtime(&entry.modify_time));
+                     std::localtime(&entry.modify_time));
 
         std::cout << (entry.is_directory ? "DIR" : "FILE") << "\t"
-                  << entry.size << "\t"
-                  << time_str << "\t"
-                  << entry.name << std::endl;
+                 << entry.size << "\t"
+                 << time_str << "\t"
+                 << entry.name << std::endl;
     }
+}
+
+// 拆分info命令为具体的子命令
+void SimpleFileSystem::cmd_disk_info() const {
+    print_disk_usage();
+}
+
+void SimpleFileSystem::cmd_cache_info() const {
+    print_cache_status();
+}
+
+void SimpleFileSystem::cmd_file_info(const std::vector<std::string>& args) const {
+    if (args.size() < 2) {
+        std::cout << "用法: stat <文件路径>" << std::endl;
+        return;
+    }
+
+    const FileInfo info = get_file_info(normalize_path(args[1]));
+    if (info.inode_id == 0) {
+        std::cout << "文件或目录不存在: " << args[1] << std::endl;
+        return;
+    }
+
+    char time_str[32];
+    std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S",
+                 std::localtime(&info.create_time));
+
+    std::cout << "类型: " << (info.is_directory ? "目录" : "文件") << std::endl;
+    std::cout << "大小: " << info.size << " 字节" << std::endl;
+    std::cout << "创建时间: " << time_str << std::endl;
+    std::cout << "INode ID: " << info.inode_id << std::endl;
 }
 
 // touch命令
@@ -765,46 +831,15 @@ void SimpleFileSystem::cmd_edit(const std::vector<std::string>& args) {
     }
 }
 
-// info命令
-void SimpleFileSystem::cmd_info(const std::vector<std::string>& args) const
-{
-    if (args.size() > 1) {
-        if (args[1] == "disk") {
-            print_disk_usage();
-        } else if (args[1] == "cache") {
-            print_cache_status();
-        } else if (args[1] == "file" && args.size() > 2) {
-            const FileInfo info = get_file_info(args[2]);
-
-            if (info.inode_id == 0) {
-                std::cout << "文件或目录不存在: " << args[2] << std::endl;
-                return;
-            }
-
-            char time_str[32];
-            std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S",
-                          std::localtime(&info.create_time));
-
-            std::cout << "文件信息: " << info.path << std::endl;
-            std::cout << "类型: " << (info.is_directory ? "目录" : "文件") << std::endl;
-            std::cout << "大小: " << info.size << " 字节" << std::endl;
-            std::cout << "创建时间: " << time_str << std::endl;
-            std::cout << "占用块数: " << info.block_count << std::endl;
-            std::cout << "起始块号: " << info.start_block << std::endl;
-            std::cout << "INode ID: " << info.inode_id << std::endl;
-        } else {
-            std::cout << "用法: info [disk|cache|file <文件路径>]" << std::endl;
-        }
-    } else {
-        print_disk_usage();
-        std::cout << std::endl;
-        print_cache_status();
-    }
-}
 
 // help命令
 void SimpleFileSystem::cmd_help() {
     std::cout << "可用命令:" << std::endl;
+    std::cout << "  cd <目录>           - 切换当前目录" << std::endl;
+    std::cout << "  pwd                 - 显示当前目录" << std::endl;
+    std::cout << "  df                  - 显示磁盘使用情况" << std::endl;
+    std::cout << "  cache               - 显示缓存状态" << std::endl;
+    std::cout << "  stat <文件>         - 显示文件或目录信息" << std::endl;
     std::cout << "  ls [目录]            - 列出目录内容" << std::endl;
     std::cout << "  touch <文件>         - 创建空文件" << std::endl;
     std::cout << "  cat <文件>           - 显示文件内容" << std::endl;
@@ -813,7 +848,6 @@ void SimpleFileSystem::cmd_help() {
     std::cout << "  mkdir <目录>         - 创建目录" << std::endl;
     std::cout << "  rmdir <目录>         - 删除目录" << std::endl;
     std::cout << "  edit <文件>          - 编辑文件内容" << std::endl;
-    std::cout << "  info [disk|cache|file <文件>] - 显示系统信息" << std::endl;
     std::cout << "  help                 - 显示帮助信息" << std::endl;
     std::cout << "  exit                 - 退出" << std::endl;
 }
