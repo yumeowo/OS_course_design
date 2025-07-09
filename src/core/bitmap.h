@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include "cache.h"
 #include "disk.h"
 #include "directory.h"
 #include "../process/sync.h"
@@ -17,6 +18,7 @@ class FreeBitmap
     uint32_t total_blocks_; // 总块数
     uint32_t free_blocks_; // 空闲块数
     mutable ReadWriteLock rw_lock_;  // 使用读写锁优化并发性能
+    CacheManager* cache_; // **[修改]** 添加cache管理器指针
 
     /**
      * 检查指定块是否空闲
@@ -172,9 +174,10 @@ public:
     }
 
     void mark_block_used(uint32_t block_id);
-    bool initialize(VirtualDisk* disk);
-    bool load(VirtualDisk* disk);
-    bool save(VirtualDisk* disk) const;
+    // **[修改]** 更新接口以使用CacheManager
+    bool initialize(CacheManager* cache, uint32_t total_blocks);
+    bool load(CacheManager* cache, const uint32_t total_blocks);
+    bool save() const;
 };
 
 #endif //BITMAP_H

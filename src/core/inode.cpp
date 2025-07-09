@@ -304,19 +304,16 @@ bool INodeManager::resize_inode(const uint32_t inode_id, const uint32_t new_size
         return false;
     }
 
-    // 当需要移动数据时，通过缓存来复制
-    if (!disk_->copy_blocks(node.start_block, new_start, old_blocks)) {
-        // 重写 copy_blocks 逻辑
-        std::vector<char> buffer(BLOCK_SIZE);
-        for(uint32_t i = 0; i < old_blocks; ++i) {
-            if (!cache_->read_block(node.start_block + i, buffer.data())) {
-                bitmap_->free_consecutive_blocks(new_start, new_blocks); // 清理
-                return false;
-            }
-            if (!cache_->write_block(new_start + i, buffer.data())) {
-                bitmap_->free_consecutive_blocks(new_start, new_blocks); // 清理
-                return false;
-            }
+    // **[修复]** 移除直接的disk->copy_blocks调用，总是使用缓存来复制数据块
+    std::vector<uint8_t> buffer(BLOCK_SIZE);
+    for(uint32_t i = 0; i < old_blocks; ++i) {
+        if (!cache_->read_block(node.start_block + i, buffer.data())) {
+            bitmap_->free_consecutive_blocks(new_start, new_blocks); // 清理
+            return false;
+        }
+        if (!cache_->write_block(new_start + i, buffer.data())) {
+            bitmap_->free_consecutive_blocks(new_start, new_blocks); // 清理
+            return false;
         }
     }
 
@@ -829,9 +826,9 @@ bool INodeManager::read_file_block_data(const uint32_t inode_id,const uint32_t b
     const size_t remaining = inode.size - offset;
     const size_t read_size = std::min(static_cast<size_t>(BLOCK_SIZE), remaining);
 
-    // 读取数据块
+    // **[修复]** 读取数据块，通过缓存
     std::vector<uint8_t> block_data(BLOCK_SIZE);
-    if (!disk_->read_block(inode.start_block + block_index, block_data.data())) {
+    if (!cache_->read_block(inode.start_block + block_index, block_data.data())) {
         return false;
     }
 
@@ -876,7 +873,8 @@ bool INodeManager::write_file_block_data(const uint32_t inode_id, const uint32_t
         memcpy(block_data.data(), content.data(), copy_size);
     }
 
-    if (!disk_->write_block(inode.start_block + block_index, block_data.data())) {
+    // **[修复]** 写入数据块，通过缓存
+    if (!cache_->write_block(inode.start_block + block_index, block_data.data())) {
         return false;
     }
 

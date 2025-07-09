@@ -46,30 +46,26 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
         return false; // 已挂载
     }
 
-    // 打开虚拟磁盘
+    // 1. 打开虚拟磁盘
     disk_ = std::make_unique<VirtualDisk>();
-    // 检查磁盘文件是否存在
     if (!disk_->open(disk_file)) {
         disk_.reset();
         return false;
     }
 
-    // 初始化位图
+    // 2. 创建缓存管理器（必须在所有其他I/O组件之前）
+    cache_ = std::make_unique<CacheManager>(disk_.get());
+
+    // 3. 初始化位图（通过缓存）
     bitmap_ = std::make_unique<FreeBitmap>();
-
-    bitmap_->initialize();
-
-    if (!bitmap_->load(disk_.get())) {
+    if (!bitmap_->load(cache_.get(), disk_->get_total_blocks())) {
+        cache_.reset();
         bitmap_.reset();
         disk_.reset();
         return false;
     }
 
-    // 创建缓存管理器
-    cache_ = std::make_unique<CacheManager>(disk_.get());
-
-
-    // 创建inode管理器
+    // 4. 创建inode管理器
     inode_manager_ = std::make_unique<INodeManager>(disk_.get(), bitmap_.get(), cache_.get());
     if (!inode_manager_->initialize()) {
         inode_manager_.reset();
@@ -79,13 +75,17 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
         return false;
     }
 
-    // 创建根目录
-    if (!inode_manager_->create_root_directory()) {
-        inode_manager_.reset();
-        cache_.reset();
-        bitmap_.reset();
-        disk_.reset();
-        return false;
+    // 5. 创建根目录（如果需要）
+    // 检查根目录inode是否存在，如果不存在则创建
+    INode root_node;
+    if (!inode_manager_->read_inode(ROOT_INODE_ID, &root_node)) {
+        if (!inode_manager_->create_root_directory()) {
+            inode_manager_.reset();
+            cache_.reset();
+            bitmap_.reset();
+            disk_.reset();
+            return false;
+        }
     }
 
     // 保存磁盘文件名并标记为已挂载
@@ -104,12 +104,12 @@ void SimpleFileSystem::unmount() {
 
     // 确保所有缓存数据写回磁盘
     if (cache_) {
+        // 先保存位图到缓存
+        if (bitmap_) {
+            bitmap_->save();
+        }
+        // 再将所有脏页（包括位图）写回磁盘
         cache_->flush_all();
-    }
-
-    // 保存位图
-    if (bitmap_) {
-        bitmap_->save(disk_.get());
     }
 
     // 清理各组件

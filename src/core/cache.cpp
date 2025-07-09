@@ -78,7 +78,11 @@ bool CacheManager::write_block(const uint32_t block_no, const void* buffer) {
             return false;
         }
 
-        // 不需要从磁盘读，因为内容会被完全覆盖
+        // **[修复]** 写未命中时，先从磁盘加载原始数据 (Fetch-on-write)
+        if (!disk_->read_block(block_no, pages_[page_index].data.data())) {
+             // 如果读取失败，可能是一个全新的块，可以忽略错误，或者进行错误处理
+        }
+
         pages_[page_index].block_no = block_no;
         pages_[page_index].access_time = time(nullptr);
         block_to_page_[block_no] = page_index;
@@ -127,6 +131,9 @@ int CacheManager::get_free_page() {
 
         // 从映射中移除旧的块
         block_to_page_.erase(pages_[victim_index].block_no);
+
+        // **[修复]** 重置被替换页的块号，增加健壮性
+        pages_[victim_index].block_no = UINT32_MAX;
 
         return victim_index;
     }
