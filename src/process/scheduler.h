@@ -10,6 +10,8 @@
 #include <chrono>
 #include <string>
 
+#include "sync.h"
+
 #define MAX_PROCESSES 8         // 最大进程数
 #define TIME_SLICE_MS 100       // 时间片（毫秒）
 
@@ -76,7 +78,7 @@ class SimpleScheduler {
 private:
     std::vector<Process> processes_;        // 进程列表
     std::queue<uint32_t> ready_queue_;      // 就绪队列
-    mutable std::mutex scheduler_mutex_;    // 调度器互斥锁
+    mutable SimpleMutex scheduler_mutex_;    // 调度器互斥锁
     std::thread scheduler_thread_;          // 调度器线程
 
     std::atomic<bool> running_;             // 调度器运行标志

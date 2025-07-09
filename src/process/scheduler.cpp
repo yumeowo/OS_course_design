@@ -14,7 +14,7 @@ SimpleScheduler::~SimpleScheduler() {
 }
 
 uint32_t SimpleScheduler::create_process(const std::string& name, const std::function<void()>& task) {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
 
     // 检查进程数限制
     if (processes_.size() >= MAX_PROCESSES) {
@@ -44,7 +44,8 @@ uint32_t SimpleScheduler::create_process(const std::string& name, const std::fun
 }
 
 void SimpleScheduler::start() {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
+
     if (running_) {
         return;
     }
@@ -59,7 +60,7 @@ void SimpleScheduler::start() {
 
 void SimpleScheduler::stop() {
     {
-        std::lock_guard<std::mutex> lock(scheduler_mutex_);
+        LockGuard<SimpleMutex> lock(scheduler_mutex_);
         running_ = false;
     }
 
@@ -83,7 +84,7 @@ void SimpleScheduler::schedule_loop() {
     while (running_) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-        std::lock_guard<std::mutex> lock(scheduler_mutex_);
+        LockGuard<SimpleMutex> lock(scheduler_mutex_);
 
         // 检查是否有就绪进程
         if (ready_queue_.empty()) {
@@ -144,7 +145,7 @@ void SimpleScheduler::run_process(uint32_t pid) {
         it->task();
 
         // 任务完成，标记为完成状态
-        std::lock_guard<std::mutex> lock(scheduler_mutex_);
+        LockGuard<SimpleMutex> lock(scheduler_mutex_);
         it->state = ProcessState::TERMINATED;
         it->running = false;
 
@@ -157,7 +158,6 @@ void SimpleScheduler::run_process(uint32_t pid) {
     catch (const std::exception& e) {
         std::cerr << "进程异常: " << it->name << " (PID: " << pid << ") - " << e.what() << std::endl;
 
-        std::lock_guard<std::mutex> lock(scheduler_mutex_);
         it->state = ProcessState::TERMINATED;
         it->running = false;
 
@@ -213,7 +213,7 @@ void SimpleScheduler::cleanup_finished_processes() {
 }
 
 void SimpleScheduler::terminate_process(uint32_t pid) {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
 
     const auto it = std::find_if(processes_.begin(), processes_.end(),
                           [pid](const Process& p) { return p.pid == pid; });
@@ -231,7 +231,7 @@ void SimpleScheduler::terminate_process(uint32_t pid) {
 }
 
 void SimpleScheduler::print_status() const {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
 
     std::cout << "\n=== 调度器状态 ===" << std::endl;
     std::cout << "运行状态: " << (running_ ? "运行中" : "已停止") << std::endl;
@@ -258,16 +258,16 @@ void SimpleScheduler::print_status() const {
 }
 
 size_t SimpleScheduler::get_process_count() const {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
     return processes_.size();
 }
 
 size_t SimpleScheduler::get_ready_count() const {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
     return ready_queue_.size();
 }
 
 bool SimpleScheduler::is_running() const {
-    std::lock_guard<std::mutex> lock(scheduler_mutex_);
+    LockGuard<SimpleMutex> lock(scheduler_mutex_);
     return running_;
 }

@@ -24,14 +24,12 @@ SimpleFileSystem::~SimpleFileSystem() {
 
 // 格式化虚拟磁盘
 bool SimpleFileSystem::format(const std::string& disk_file, const size_t size_mb) {
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     if (mounted_) {
         return false; // 已挂载不能格式化
     }
 
     // 创建虚拟磁盘
-    disk_ = std::make_unique<VirtualDisk>("my_disk.img");
+    disk_ = std::make_unique<VirtualDisk>();
     if (!disk_->create(disk_file, size_mb)) {
         disk_.reset();
         return false;
@@ -74,14 +72,12 @@ bool SimpleFileSystem::format(const std::string& disk_file, const size_t size_mb
 
 // 挂载文件系统
 bool SimpleFileSystem::mount(const std::string& disk_file) {
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     if (mounted_) {
         return false; // 已挂载
     }
 
     // 打开虚拟磁盘
-    disk_ = std::make_unique<VirtualDisk>("my_disk.img");
+    disk_ = std::make_unique<VirtualDisk>();
     if (!disk_->open(disk_file)) {
         disk_.reset();
         return false;
@@ -118,8 +114,6 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
 
 // 卸载文件系统
 void SimpleFileSystem::unmount() {
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     if (!mounted_) {
         return;
     }
@@ -154,8 +148,6 @@ int SimpleFileSystem::create_file(const std::string& path, const std::string& co
         return -1;
     }
 
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     const std::string normalized_path = normalize_path(path);
     if (!is_valid_filename(normalized_path.substr(normalized_path.find_last_of('/') + 1))) {
         return -2; // 无效文件名
@@ -178,8 +170,6 @@ int SimpleFileSystem::delete_file(const std::string& path) {
     if (!mounted_) {
         return -1;
     }
-
-    LockGuard<SimpleMutex> lock(fs_mutex_);
 
     const std::string normalized_path = normalize_path(path);
     if (is_file_protected(normalized_path)) {
@@ -246,8 +236,6 @@ int SimpleFileSystem::write_file(const std::string& path, const std::string& con
         return -1;
     }
 
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     const std::string normalized_path = normalize_path(path);
     if (is_file_protected(normalized_path)) {
         return -2; // 文件被占用
@@ -274,8 +262,6 @@ int SimpleFileSystem::write_file_block(const std::string& path, const uint32_t b
         return -1;
     }
 
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     const std::string normalized_path = normalize_path(path);
     if (is_file_protected(normalized_path)) {
         return -2; // 文件被占用
@@ -295,12 +281,11 @@ int SimpleFileSystem::modify_file_content(const std::string& path, const std::st
 }
 
 // 创建目录
-int SimpleFileSystem::create_directory(const std::string& parent_path, const std::string& name) {
+int SimpleFileSystem::create_directory(const std::string& parent_path, const std::string& name) const
+{
     if (!mounted_) {
         return -1;
     }
-
-    LockGuard<SimpleMutex> lock(fs_mutex_);
 
     if (!is_valid_filename(name)) {
         return -2; // 无效目录名
@@ -319,8 +304,6 @@ int SimpleFileSystem::delete_directory(const std::string& path) {
     if (!mounted_) {
         return -1;
     }
-
-    LockGuard<SimpleMutex> lock(fs_mutex_);
 
     const std::string normalized_path = normalize_path(path);
 
@@ -379,8 +362,6 @@ bool SimpleFileSystem::open_file(const std::string& path) {
         return false;
     }
 
-    LockGuard<SimpleMutex> lock(fs_mutex_);
-
     const std::string normalized_path = normalize_path(path);
 
     // 检查文件是否存在
@@ -399,8 +380,6 @@ bool SimpleFileSystem::close_file(const std::string& path) {
     if (!mounted_) {
         return false;
     }
-
-    LockGuard<SimpleMutex> lock(fs_mutex_);
 
     const std::string normalized_path = normalize_path(path);
 
@@ -699,7 +678,8 @@ void SimpleFileSystem::cmd_rm(const std::vector<std::string>& args) {
 }
 
 // mkdir命令
-void SimpleFileSystem::cmd_mkdir(const std::vector<std::string>& args) {
+void SimpleFileSystem::cmd_mkdir(const std::vector<std::string>& args) const
+{
     if (args.size() < 2) {
         std::cout << "用法: mkdir <目录路径>" << std::endl;
         return;

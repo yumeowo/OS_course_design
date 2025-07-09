@@ -66,8 +66,6 @@ bool INodeManager::create_root_directory() {
 
 int32_t INodeManager::create_inode(const uint32_t parent_id, const uint8_t type,
                                    const std::string& name, const uint32_t size) {
-    // 使用写锁保护整个创建过程
-    ReadWriteLock::WriteGuard write_guard(inode_lock_);
 
     if (inode_count_ >= max_inodes_) {
         return -1; // 无可用 inode
@@ -143,9 +141,6 @@ bool INodeManager::read_inode(const uint32_t inode_id, INode* node) const
 {
     if (inode_id >= max_inodes_) return false;
 
-    // 使用读锁保护读操作
-    ReadWriteLock::ReadGuard read_guard(inode_lock_);
-
     if (!inode_used_[inode_id]) return false;
 
     // 细粒度锁保护具体inode
@@ -165,7 +160,7 @@ bool INodeManager::write_inode(const uint32_t inode_id, const INode* node) const
 {
     if (inode_id >= max_inodes_) return false;
 
-    if (!inode_used_[inode_id]) return false;
+    if (inode_used_[inode_id]) return false;
 
     // 细粒度锁保护具体inode
     LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
@@ -182,10 +177,6 @@ bool INodeManager::write_inode(const uint32_t inode_id, const INode* node) const
 
 bool INodeManager::delete_inode(const uint32_t inode_id) {
     if (inode_id >= MAX_FILES || !inode_used_[inode_id]) return false;
-
-    ReadWriteLock::WriteGuard write_guard(inode_lock_);
-
-    LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
 
     INode node;
     if (!read_inode(inode_id, &node)) return false;
@@ -228,9 +219,6 @@ bool INodeManager::delete_inode(const uint32_t inode_id) {
 bool INodeManager::resize_inode(const uint32_t inode_id, const uint32_t new_size) const
 {
     if (inode_id >= MAX_FILES) return false;
-
-    // 使用写锁保护整个resize过程
-    ReadWriteLock::WriteGuard write_guard(inode_lock_);
 
     if (!inode_used_[inode_id]) return false;
 
@@ -307,8 +295,6 @@ bool INodeManager::validate_inode(const INode* node)
 
 int32_t INodeManager::find_inode(const uint32_t parent_id, const std::string& name) const
 {
-    ReadWriteLock::ReadGuard read_guard(inode_lock_);
-
     const std::shared_ptr<Directory> dir = get_directory(parent_id);
     if (!dir) {
         return -1;
@@ -523,8 +509,6 @@ bool INodeManager::file_exists(const std::string& path) const
 // 私有辅助方法实现
 std::shared_ptr<Directory> INodeManager::get_directory(uint32_t dir_id) const
 {
-    LockGuard<SimpleMutex> lock(cache_mutex_);
-
     const auto it = directory_cache_.find(dir_id);
     if (it != directory_cache_.end()) {
         return std::shared_ptr<Directory>(it->second.get(), [](Directory*){});

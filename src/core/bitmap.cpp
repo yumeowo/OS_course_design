@@ -60,8 +60,6 @@ void FreeBitmap::set_block_status(const uint32_t block_no, const bool allocated)
 }
 
 uint32_t FreeBitmap::find_first_free_block() const {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
-
     for (uint32_t block = 0; block < total_blocks_; ++block) {
         if (is_block_free(block)) {
             return block;
@@ -71,8 +69,6 @@ uint32_t FreeBitmap::find_first_free_block() const {
 }
 
 uint32_t FreeBitmap::find_consecutive_free_blocks(const uint32_t count) const {
-    ReadWriteLock::WriteGuard guard(rw_lock_);
-
     if (count == 0 || count > free_blocks_) {
         return UINT32_MAX;
     }

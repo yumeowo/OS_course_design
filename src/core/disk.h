@@ -22,7 +22,7 @@ class VirtualDisk {
     mutable ReadWriteLock disk_lock_; // 磁盘操作互斥锁
 
 public:
-    explicit VirtualDisk(std::string filename, const size_t size_mb = DISK_SIZE, const size_t block_size = BLOCK_SIZE)
+    explicit VirtualDisk(std::string filename = "default", const size_t size_mb = DISK_SIZE, const size_t block_size = BLOCK_SIZE)
         : disk_file_(std::move(filename)), disk_size_(size_mb * 1024 * 1024), block_size_(block_size) {
         total_blocks_ = static_cast<uint32_t>(disk_size_ / block_size_);
     }

@@ -28,7 +28,6 @@ private:
 
     bool mounted_;
     std::string disk_file_;
-    SimpleMutex fs_mutex_;
 
     // 文件保护机制 - 跟踪打开的文件
     std::unordered_map<std::string, int> open_files_; // 文件路径 -> 打开次数
@@ -57,7 +56,7 @@ public:
     int modify_file_content(const std::string& path, const std::string& new_content);
 
     // 目录操作
-    int create_directory(const std::string& parent_path, const std::string& name);
+    int create_directory(const std::string& parent_path, const std::string& name) const;
     int delete_directory(const std::string& path);
     std::vector<FileInfo> list_directory(const std::string& path) const;
 
@@ -85,7 +84,7 @@ private:
     void cmd_cat(const std::vector<std::string>& args);
     void cmd_echo(const std::vector<std::string>& args);
     void cmd_rm(const std::vector<std::string>& args);
-    void cmd_mkdir(const std::vector<std::string>& args);
+    void cmd_mkdir(const std::vector<std::string>& args) const;
     void cmd_rmdir(const std::vector<std::string>& args);
     void cmd_edit(const std::vector<std::string>& args);
     void cmd_info(const std::vector<std::string>& args) const;
