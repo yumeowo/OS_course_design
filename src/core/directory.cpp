@@ -1,6 +1,7 @@
 #include "directory.h"
 #include <cstring>
 #include <algorithm>
+#include <iostream>
 
 Directory::Directory(const uint32_t dir_inode_id) : dir_inode_id_(dir_inode_id) {}
 
@@ -91,6 +92,8 @@ uint32_t Directory::get_inode_id() const {
 std::vector<uint8_t> Directory::serialize() const {
     // ReadWriteLock::ReadGuard lock(rw_lock_);
 
+    // std::cout << "正在序列化目录内容... (entries: " << entries_.size() << ")" << std::endl;
+
     std::vector<uint8_t> data;
     const size_t total_size = sizeof(uint32_t) + entries_.size() * sizeof(DirectoryEntry);
     data.resize(total_size);
@@ -105,6 +108,7 @@ std::vector<uint8_t> Directory::serialize() const {
                    entries_.size() * sizeof(DirectoryEntry));
     }
 
+    // std::cout << "目录序列化完成，总大小: " << data.size() << " 字节" << std::endl;
     return data;
 }
 

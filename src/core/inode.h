@@ -14,7 +14,7 @@
 #define FS_DIRECTORY 1
 
 // 根目录 ID
-#define ROOT_INODE_ID 0
+#define ROOT_INODE_ID 1
 
 // INode 结构体定义
 struct INode {

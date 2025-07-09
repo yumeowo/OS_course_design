@@ -77,7 +77,7 @@ uint32_t FreeBitmap::find_consecutive_free_blocks(const uint32_t count) const {
         bool found = true;
 
         // 检查从start开始的count个连续块是否都空闲
-        for (uint32_t i = 0; i < count; ++i) {
+        for (uint32_t i = 1; i < count; ++i) {
             if (!is_block_free(start + i)) {
                 found = false;
                 break;

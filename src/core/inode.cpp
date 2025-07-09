@@ -38,27 +38,67 @@ bool INodeManager::initialize()
     return true;
 }
 bool INodeManager::create_root_directory() {
+
+    // 确保位图已初始化
+    if (!bitmap_) {
+        std::cerr << "Error: 位图未初始化" << std::endl;
+        return false;
+    }
+
     // 创建根目录inode
     INode root_inode;
     root_inode.id = ROOT_INODE_ID;
     root_inode.type = FS_DIRECTORY;
     root_inode.size = 0;
-    root_inode.start_block = 0;
-    root_inode.block_count = 0;
-    root_inode.parent_id = ROOT_INODE_ID; // 根目录的父目录是自己
+    root_inode.block_count = 1;
+    root_inode.parent_id = ROOT_INODE_ID;
     root_inode.create_time = time(nullptr);
     root_inode.modify_time = root_inode.create_time;
     strcpy(root_inode.name, "/");
 
-    if (!write_inode(ROOT_INODE_ID, &root_inode)) {
+    // 分配数据块
+    if (!bitmap_->allocate_consecutive_blocks(1, root_inode.start_block)) {
+        std::cerr << "Error: 无法为根目录分配数据块" << std::endl;
         return false;
     }
 
+    // 写入inode
+    if (!write_inode(ROOT_INODE_ID, &root_inode)) {
+        std::cerr << "Error: 写入根目录inode失败" << std::endl;
+        bitmap_->free_consecutive_blocks(root_inode.start_block, 1);
+        return false;
+    }
+
+    // 标记inode为已使用
     inode_used_[ROOT_INODE_ID] = true;
     inode_count_++;
 
-    // 创建根目录的目录结构
+    // 创建目录对象
     auto root_dir = std::make_unique<Directory>(ROOT_INODE_ID);
+    if (!root_dir) {
+        std::cerr << "Error: 创建根目录对象失败" << std::endl;
+        bitmap_->free_consecutive_blocks(root_inode.start_block, 1);
+        return false;
+    }
+
+    // 添加 . 和 .. 目录项
+    if (!root_dir->add_entry(".", ROOT_INODE_ID, FS_DIRECTORY) ||
+        !root_dir->add_entry("..", ROOT_INODE_ID, FS_DIRECTORY)) {
+        std::cerr << "Error: 添加根目录项失败" << std::endl;
+        bitmap_->free_consecutive_blocks(root_inode.start_block, 1);
+        return false;
+    }
+
+    // 保存目录内容
+    if (!save_directory_content(ROOT_INODE_ID, *root_dir)) {
+        std::cerr << "Error: 保存根目录内容失败" << std::endl;
+        bitmap_->free_consecutive_blocks(root_inode.start_block, 1);
+        delete_inode(ROOT_INODE_ID);
+        return false;
+    }
+
+
+    // 缓存目录
     cache_directory(ROOT_INODE_ID, std::move(root_dir));
 
     return true;
@@ -143,9 +183,6 @@ bool INodeManager::read_inode(const uint32_t inode_id, INode* node) const
 
     if (!inode_used_[inode_id]) return false;
 
-    // 细粒度锁保护具体inode
-    LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
-
     const uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
     const uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
 
@@ -160,16 +197,14 @@ bool INodeManager::write_inode(const uint32_t inode_id, const INode* node) const
 {
     if (inode_id >= max_inodes_) return false;
 
-    if (inode_used_[inode_id]) return false;
-
-    // 细粒度锁保护具体inode
-    LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
-
     const uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
     const uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
 
     std::vector<uint8_t> block(BLOCK_SIZE);
-    if (!disk_->read_block(block_index, block.data())) return false;
+    if (!disk_->read_block(block_index, block.data()))
+    {
+        return false;
+    }
 
     memcpy(block.data() + block_offset, node, INODE_SIZE);
     return disk_->write_block(block_index, block.data());
@@ -312,28 +347,36 @@ uint32_t INodeManager::get_total_inodes() const {
     return inode_count_;
 }
 
-int32_t INodeManager::resolve_path(const std::string& path) const
-{
+int32_t INodeManager::resolve_path(const std::string& path) const {
     const std::string normalized = normalize_path(path);
 
-    if (normalized == "/") {
+    if (normalized == "/" || normalized.empty()) {
         return ROOT_INODE_ID;
     }
 
-    const auto path_components = split_path(normalized);
-    uint32_t current_inode = ROOT_INODE_ID;
+    const std::vector<std::string> components = split_path(normalized);
+    int32_t current_inode = ROOT_INODE_ID;
 
-    for (const auto& component : path_components) {
-        if (component.empty()) continue;
+    for (const auto& component : components) {
+        if (component.empty() || component == "." || component == "..") {
+            continue;
+        }
 
-        const int32_t next_inode = find_inode(current_inode, component);
-        if (next_inode == -1) {
+        // 查找子目录
+        const auto dir = get_directory(current_inode);
+        if (!dir) {
             return -1;
         }
-        current_inode = static_cast<uint32_t>(next_inode);
+
+        DirectoryEntry entry;
+        if (!dir->find_entry(component, entry)) {
+            return -1;
+        }
+
+        current_inode = entry.inode_id;
     }
 
-    return static_cast<int32_t>(current_inode);
+    return current_inode;
 }
 
 bool INodeManager::create_file(const std::string& path, const std::string& content) {
@@ -376,10 +419,6 @@ bool INodeManager::create_file(const std::string& path, const std::string& conte
 bool INodeManager::create_directory(const std::string& parent_path, const std::string& name) {
     const std::string normalized_parent = normalize_path(parent_path);
 
-    if (!is_valid_filename(name)) {
-        return false;
-    }
-
     // 解析父目录
     const int32_t parent_inode = resolve_path(normalized_parent);
     if (parent_inode == -1) {
@@ -392,13 +431,30 @@ bool INodeManager::create_directory(const std::string& parent_path, const std::s
     }
 
     // 创建目录inode
-    int32_t dir_inode = create_inode(parent_inode, FS_DIRECTORY, name, 0);
+    const int32_t dir_inode = create_inode(parent_inode, FS_DIRECTORY, name, 0);
     if (dir_inode == -1) {
         return false;
     }
 
-    // 创建目录结构
+    // 重新读取inode以确保创建成功
+    INode inode;
+    if(!read_inode(dir_inode, &inode)) {
+        delete_inode(dir_inode);
+        return false;
+    }
+
+    // 创建目录对象并初始化
     auto dir = std::make_unique<Directory>(dir_inode);
+    dir->add_entry(".", dir_inode, FS_DIRECTORY);
+    dir->add_entry("..", parent_inode, FS_DIRECTORY);
+
+    // 保存目录内容
+    if (!save_directory_content(dir_inode, *dir)) {
+        delete_inode(dir_inode);
+        return false;
+    }
+
+    // 缓存目录
     cache_directory(dir_inode, std::move(dir));
 
     return true;
@@ -552,36 +608,52 @@ bool INodeManager::load_directory_content(const uint32_t dir_id, Directory& dir)
 }
 
 bool INodeManager::save_directory_content(const uint32_t dir_id, const Directory& dir) const {
-    const auto data = dir.serialize();
 
+    // 获取目录的inode信息
     INode inode;
     if (!read_inode(dir_id, &inode)) {
+        std::cerr << "Error: 无法读取目录inode" << std::endl;
         return false;
     }
 
-    // 调整目录大小
-    if (!resize_inode(dir_id, data.size())) {
+    // 序列化目录内容
+    std::vector<uint8_t> dir_data = dir.serialize();
+    if (dir_data.empty()) {
+        std::cerr << "Error: 目录序列化失败" << std::endl;
         return false;
     }
 
-    // 重新读取更新后的inode
-    if (!read_inode(dir_id, &inode)) {
+
+    // 确保数据块已分配
+    if (inode.block_count == 0) {
+        std::cerr << "Error: 目录数据块未正确分配" << std::endl;
         return false;
     }
 
-    // 写入目录数据
-    for (uint32_t i = 0; i < inode.block_count; ++i) {
-        std::vector<uint8_t> block_data(BLOCK_SIZE, 0);
-        const size_t copy_size = std::min(static_cast<size_t>(BLOCK_SIZE),
-                                  data.size() - i * BLOCK_SIZE);
+    // 准备写入数据
+    std::vector<uint8_t> block_data(BLOCK_SIZE, 0);
+    const size_t data_size = dir_data.size();
 
-        if (copy_size > 0) {
-            memcpy(block_data.data(), data.data() + i * BLOCK_SIZE, copy_size);
-        }
+    // 写入第一个块的大小信息
+    *reinterpret_cast<uint32_t*>(block_data.data()) = data_size;
 
-        if (!disk_->write_block(inode.start_block + i, block_data.data())) {
-            return false;
-        }
+    // 复制目录数据
+    const size_t copy_size = std::min(data_size, BLOCK_SIZE - sizeof(uint32_t));
+    std::memcpy(block_data.data() + sizeof(uint32_t), dir_data.data(), copy_size);
+
+    // 写入数据块
+    if (!disk_->write_block(inode.start_block, block_data.data())) {
+        std::cerr << "Error: 写入目录数据块失败" << std::endl;
+        return false;
+    }
+
+    // 更新目录inode
+    inode.size = dir_data.size();
+    inode.modify_time = time(nullptr);
+
+    if (!write_inode(dir_id, &inode)) {
+        std::cerr << "Error: 更新目录inode失败" << std::endl;
+        return false;
     }
 
     return true;

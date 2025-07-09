@@ -454,35 +454,33 @@ void SimpleFileSystem::print_cache_status() const
     cache_->print_status();
 }
 
-// 标准化路径
-std::string SimpleFileSystem::normalize_path(const std::string& path) const
+// 规范化路径（处理"."和".."）
+std::string SimpleFileSystem::normalize_path(const std::string& path)
 {
-    if (path.empty()) {
-        return "/";
-    }
+    std::vector<std::string> components;
+    std::stringstream ss(path);
+    std::string item;
 
-    std::string result = current_path_ + "/" + path;
-
-    // 确保以/开头
-    if (result[0] != '/') {
-        result = '/' + result;
-    }
-
-    // 移除重复的/
-    for (size_t i = 0; i < result.length() - 1; ++i) {
-        if (result[i] == '/' && result[i + 1] == '/') {
-            result.erase(i + 1, 1);
-            --i;
+    // 分割路径
+    while (std::getline(ss, item, '/')) {
+        if (item.empty() || item == ".") continue;
+        if (item == "..") {
+            if (!components.empty()) components.pop_back();
+        } else {
+            components.push_back(item);
         }
     }
 
-    // 移除末尾的/（根目录除外）
-    if (result.length() > 1 && result.back() == '/') {
-        result.pop_back();
+    // 重建路径
+    std::string result = "/";
+    for (const auto& comp : components) {
+        if (!result.empty() && result.back() != '/') result += '/';
+        result += comp;
     }
 
-    return result;
+    return result.empty() ? "/" : result;
 }
+
 
 // 验证文件名有效性
 bool SimpleFileSystem::is_valid_filename(const std::string& name) {
@@ -516,7 +514,7 @@ void SimpleFileSystem::run_command_interface() {
     }
 
     std::string command;
-    std::cout << "SimpleFS > ";
+    std::cout << this->current_path_ << " > ";
 
     while (std::getline(std::cin, command)) {
         if (command == "exit" || command == "quit") {
@@ -524,7 +522,7 @@ void SimpleFileSystem::run_command_interface() {
         }
 
         handle_command(command);
-        std::cout << "SimpleFS > ";
+        std::cout << this->current_path_ << " > ";
     }
 }
 
@@ -600,11 +598,6 @@ std::vector<std::string> SimpleFileSystem::split_command(const std::string& comm
 
 // 新增的命令实现
 void SimpleFileSystem::cmd_cd(const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        change_directory("/");
-        return;
-    }
-
     if (!change_directory(args[1])) {
         std::cout << "cd: " << args[1] << ": 目录不存在" << std::endl;
     }

@@ -7,24 +7,13 @@
 #include "filesystem.h"
 
 const std::string DISK_FILE = "mydisk.img";
-constexpr size_t DISK_SIZE_MB = 100;
+constexpr size_t DISK_SIZE_MB = 256;
 
 void print_welcome_message() {
     std::cout << "========================================\n";
     std::cout << "  简易虚拟文件系统 (MySimpleFS) v1.0\n";
     std::cout << "========================================\n";
-    std::cout << "支持的命令:\n";
-    std::cout << "  touch <文件名>            - 创建空文件\n";
-    std::cout << "  cat <文件名>              - 显示文件内容\n";
-    std::cout << "  ls [目录路径]             - 列出目录内容\n";
-    std::cout << "  mkdir <目录名>            - 创建目录\n";
-    std::cout << "  rmdir <目录名>            - 删除目录\n";
-    std::cout << "  rm <文件名>               - 删除文件\n";
-    std::cout << "  echo <内容> <文件名>    - 写入文件内容\n";
-    std::cout << "  edit <文件名>             - 编辑文件内容\n";
-    std::cout << "  info [路径]               - 显示文件或目录信息\n";
-    std::cout << "  help                      - 显示帮助信息\n";
-    std::cout << "  exit                      - 退出系统\n";
+    SimpleFileSystem::cmd_help();
     std::cout << "========================================\n";
 }
 

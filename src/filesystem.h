@@ -35,7 +35,7 @@ private:
     std::unordered_map<std::string, int> open_files_; // 文件路径 -> 打开次数
 
     // 内部辅助函数
-    std::string normalize_path(const std::string& path) const;
+    static std::string normalize_path(const std::string& path);
     static bool is_valid_filename(const std::string& name);
     bool is_file_protected(const std::string& path);
 
@@ -79,7 +79,6 @@ public:
     // 命令行接口
     void run_command_interface();
 
-private:
     // 命令处理函数
     void handle_command(const std::string& command);
     void cmd_touch(const std::vector<std::string>& args);
@@ -94,6 +93,8 @@ private:
     void cmd_rmdir(const std::vector<std::string>& args);
     void cmd_edit(const std::vector<std::string>& args);
     static void cmd_help();
+
+private:
 
     static std::vector<std::string> split_command(const std::string& command);
     void cmd_cd(const std::vector<std::string>& args);
