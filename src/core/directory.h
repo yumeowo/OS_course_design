@@ -11,7 +11,7 @@
 // 目录项结构
 struct DirectoryEntry {
     uint32_t inode_id;      // 对应的inode ID
-    std::string name;          // 目录项名称
+    char name[64];          // 目录项名称
     uint8_t type;          // 类型(文件/目录)
 };
 

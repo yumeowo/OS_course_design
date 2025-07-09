@@ -28,15 +28,15 @@ bool SimpleFileSystem::format(const std::string& disk_file, const size_t size_mb
         return false; // 已挂载不能格式化
     }
 
-    // 创建虚拟磁盘
-    disk_ = std::make_unique<VirtualDisk>();
-    if (!disk_->create(disk_file, size_mb)) {
-        disk_.reset();
+    // 使用一个临时的 VirtualDisk 对象来完成格式化操作
+    // 它不影响类的成员 disk_
+    VirtualDisk temp_disk;
+    if (!temp_disk.create(disk_file, size_mb)) {
         return false;
     }
+    // 函数结束时，temp_disk 被销毁，其文件流被自动关闭，这很安全。
 
     std::cout << "格式化完成：" << disk_file << " (" << size_mb << "MB)" << std::endl;
-
     return true;
 }
 
@@ -59,11 +59,9 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
 
     bitmap_->initialize();
 
-    // 初始化位图
-    bitmap_ = std::make_unique<FreeBitmap>();
     if (!bitmap_->load(disk_.get())) {
-        disk_.reset();
         bitmap_.reset();
+        disk_.reset();
         return false;
     }
 
@@ -74,19 +72,19 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
     // 创建inode管理器
     inode_manager_ = std::make_unique<INodeManager>(disk_.get(), bitmap_.get(), cache_.get());
     if (!inode_manager_->initialize()) {
-        disk_.reset();
-        bitmap_.reset();
-        cache_.reset();
         inode_manager_.reset();
+        cache_.reset();
+        bitmap_.reset();
+        disk_.reset();
         return false;
     }
 
     // 创建根目录
     if (!inode_manager_->create_root_directory()) {
-        disk_.reset();
-        bitmap_.reset();
-        cache_.reset();
         inode_manager_.reset();
+        cache_.reset();
+        bitmap_.reset();
+        disk_.reset();
         return false;
     }
 

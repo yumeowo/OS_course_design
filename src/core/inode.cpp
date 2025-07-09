@@ -94,7 +94,7 @@ bool INodeManager::create_root_directory() {
     std::cout << "***成功添加根目录项" << std::endl;
 
     // 保存目录内容
-    if (!save_directory_content(ROOT_INODE_ID, *root_dir)) {
+    if (!save_directory_content(ROOT_INODE_ID, *root_dir.get())) {
         std::cerr << "Error: 保存根目录内容失败" << std::endl;
         bitmap_->free_consecutive_blocks(root_inode.start_block, 1);
         delete_inode(ROOT_INODE_ID);
@@ -260,10 +260,9 @@ bool INodeManager::resize_inode(const uint32_t inode_id, const uint32_t new_size
 
     if (!inode_used_[inode_id]) return false;
 
-    LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
 
     INode node;
-    if (!read_inode(inode_id, &node) || node.type != FS_FILE) return false;
+    if (!read_inode(inode_id, &node)) return false;
 
     const uint32_t new_blocks = calculate_blocks_needed(new_size);
     const uint32_t old_blocks = node.block_count;
@@ -726,8 +725,6 @@ bool INodeManager::read_inode_data(const uint32_t inode_id, std::string& content
     if (!read_inode(inode_id, &inode)) {
         return false;
     }
-    // 使用细粒度锁保护
-    LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
 
     // 使用vector作为中间缓冲区
     std::vector<uint8_t> buffer(inode.size);
@@ -826,9 +823,6 @@ bool INodeManager::read_file_block_data(const uint32_t inode_id,const uint32_t b
     if (block_index >= inode.block_count) {
         return false;
     }
-
-    // 使用细粒度锁保护
-    LockGuard<SpinLock> inode_guard(*inode_locks_[inode_id]);
 
     // 计算实际需要读取的字节数
     const size_t offset = block_index * BLOCK_SIZE;
@@ -942,7 +936,7 @@ bool INodeManager::delete_directory_recursive(const uint32_t dir_id) {
 
     // 递归删除所有子目录和文件
     for (const auto& entry : entries) {
-        if (entry.name == "." || entry.name == "..") {
+        if (std::strcmp(entry.name, ".") == 0 || std::strcmp(entry.name, "..") == 0) {
             continue; // 跳过当前目录和父目录
         }
 

@@ -28,7 +28,8 @@ bool Directory::add_entry(const std::string& name, const uint32_t inode_id, cons
     DirectoryEntry new_entry;
     new_entry.inode_id = inode_id;
     new_entry.type = type;
-    new_entry.name = name;
+    std::strncpy(new_entry.name, name.c_str(), sizeof(new_entry.name) - 1);
+    new_entry.name[sizeof(new_entry.name) - 1] = '\0';
 
     entries_.push_back(new_entry);
     return true;
@@ -39,7 +40,7 @@ bool Directory::remove_entry(const std::string& name) {
 
     const auto it = std::find_if(entries_.begin(), entries_.end(),
                           [&name](const DirectoryEntry& entry) {
-                              return entry.name == name;
+                              return std::strcmp(entry.name, name.c_str()) == 0;
                           });
 
     if (it == entries_.end()) {
@@ -55,7 +56,7 @@ bool Directory::find_entry(const std::string& name, DirectoryEntry& entry) {
 
     const auto it = std::find_if(entries_.begin(), entries_.end(),
                           [&name](const DirectoryEntry& e) {
-                              return e.name == name;
+                              return std::strcmp(e.name, name.c_str()) == 0;
                           });
 
     if (it == entries_.end()) {
@@ -152,7 +153,7 @@ bool Directory::validate() const {
     // 检查目录项名称唯一性
     for (size_t i = 0; i < entries_.size(); i++) {
         for (size_t j = i + 1; j < entries_.size(); j++) {
-            if (entries_[i].name == entries_[j].name) {
+            if (std::strcmp(entries_[i].name, entries_[j].name) == 0) {
                 return false;
             }
         }
