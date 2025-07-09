@@ -48,6 +48,7 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
 
     // 打开虚拟磁盘
     disk_ = std::make_unique<VirtualDisk>();
+    // 检查磁盘文件是否存在
     if (!disk_->open(disk_file)) {
         disk_.reset();
         return false;
@@ -71,7 +72,7 @@ bool SimpleFileSystem::mount(const std::string& disk_file) {
 
 
     // 创建inode管理器
-    inode_manager_ = std::make_unique<INodeManager>(disk_.get(), bitmap_.get());
+    inode_manager_ = std::make_unique<INodeManager>(disk_.get(), bitmap_.get(), cache_.get());
     if (!inode_manager_->initialize()) {
         disk_.reset();
         bitmap_.reset();

@@ -11,16 +11,16 @@ constexpr uint32_t INODE_SIZE = sizeof(INode);
 // 每块可存储的INode数量
 constexpr uint32_t INODES_PER_BLOCK = BLOCK_SIZE / INODE_SIZE;
 
-INodeManager::INodeManager(VirtualDisk* disk, FreeBitmap* bitmap) 
-    : disk_(disk), bitmap_(bitmap) {
+INodeManager::INodeManager(VirtualDisk* disk, FreeBitmap* bitmap, CacheManager* cache)
+    : cache_(cache), disk_(disk), bitmap_(bitmap) {
     // 初始化inode使用标记
     inode_used_.resize(max_inodes_, false);
 
     // 初始化细粒度锁
-    inode_locks_.resize(max_inodes_);
-    for (size_t i = 0; i < max_inodes_; ++i) {
-        inode_locks_[i] = std::make_unique<SpinLock>();
-    }
+    // inode_locks_.resize(max_inodes_);
+    // for (size_t i = 0; i < max_inodes_; ++i) {
+    //     inode_locks_[i] = std::make_unique<SpinLock>();
+    // }
 }
 
 INodeManager::~INodeManager() {
@@ -81,6 +81,8 @@ bool INodeManager::create_root_directory() {
         return false;
     }
 
+    std::cout << "***成功创建根目录对象" << std::endl;
+
     // 添加 . 和 .. 目录项
     if (!root_dir->add_entry(".", ROOT_INODE_ID, FS_DIRECTORY) ||
         !root_dir->add_entry("..", ROOT_INODE_ID, FS_DIRECTORY)) {
@@ -89,6 +91,8 @@ bool INodeManager::create_root_directory() {
         return false;
     }
 
+    std::cout << "***成功添加根目录项" << std::endl;
+
     // 保存目录内容
     if (!save_directory_content(ROOT_INODE_ID, *root_dir)) {
         std::cerr << "Error: 保存根目录内容失败" << std::endl;
@@ -96,6 +100,8 @@ bool INodeManager::create_root_directory() {
         delete_inode(ROOT_INODE_ID);
         return false;
     }
+
+    std::cout << "***成功保存根目录内容" << std::endl;
 
 
     // 缓存目录
@@ -179,17 +185,16 @@ int32_t INodeManager::create_inode(const uint32_t parent_id, const uint8_t type,
 
 bool INodeManager::read_inode(const uint32_t inode_id, INode* node) const
 {
-    if (inode_id >= max_inodes_) return false;
-
-    if (!inode_used_[inode_id]) return false;
+    if (inode_id >= max_inodes_ || !inode_used_[inode_id]) return false;
 
     const uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
     const uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
 
-    std::vector<uint8_t> block(BLOCK_SIZE);
-    if (!disk_->read_block(block_index, block.data())) return false;
+    std::vector<uint8_t> block_buffer(BLOCK_SIZE);
+    // 使用缓存读取
+    if (!cache_->read_block(block_index, block_buffer.data())) return false;
 
-    memcpy(node, block.data() + block_offset, INODE_SIZE);
+    memcpy(node, block_buffer.data() + block_offset, INODE_SIZE);
     return true;
 }
 
@@ -200,14 +205,17 @@ bool INodeManager::write_inode(const uint32_t inode_id, const INode* node) const
     const uint32_t block_index = inode_id / INODES_PER_BLOCK + inode_table_start_;
     const uint32_t block_offset = (inode_id % INODES_PER_BLOCK) * INODE_SIZE;
 
-    std::vector<uint8_t> block(BLOCK_SIZE);
-    if (!disk_->read_block(block_index, block.data()))
-    {
-        return false;
+    std::vector<uint8_t> block_buffer(BLOCK_SIZE);
+    // 先读到缓存（如果不在的话），再修改，然后写回缓存
+    // read_block 会确保块数据在缓存中
+    if (!cache_->read_block(block_index, block_buffer.data())) {
+        // 如果inode表块不存在，可能需要特殊处理，但通常它应该已存在
+        // 这里假设它总能被读取
     }
 
-    memcpy(block.data() + block_offset, node, INODE_SIZE);
-    return disk_->write_block(block_index, block.data());
+    memcpy(block_buffer.data() + block_offset, node, INODE_SIZE);
+    // 写入操作会通过缓存，并标记为脏页
+    return cache_->write_block(block_index, block_buffer.data());
 }
 
 bool INodeManager::delete_inode(const uint32_t inode_id) {
@@ -297,9 +305,20 @@ bool INodeManager::resize_inode(const uint32_t inode_id, const uint32_t new_size
         return false;
     }
 
+    // 当需要移动数据时，通过缓存来复制
     if (!disk_->copy_blocks(node.start_block, new_start, old_blocks)) {
-        bitmap_->free_consecutive_blocks(new_start, new_blocks);
-        return false;
+        // 重写 copy_blocks 逻辑
+        std::vector<char> buffer(BLOCK_SIZE);
+        for(uint32_t i = 0; i < old_blocks; ++i) {
+            if (!cache_->read_block(node.start_block + i, buffer.data())) {
+                bitmap_->free_consecutive_blocks(new_start, new_blocks); // 清理
+                return false;
+            }
+            if (!cache_->write_block(new_start + i, buffer.data())) {
+                bitmap_->free_consecutive_blocks(new_start, new_blocks); // 清理
+                return false;
+            }
+        }
     }
 
     bitmap_->free_consecutive_blocks(node.start_block, old_blocks);
@@ -560,84 +579,18 @@ std::shared_ptr<Directory> INodeManager::get_directory(uint32_t dir_id) const
 
 bool INodeManager::load_directory_content(const uint32_t dir_id, Directory& dir) const
 {
-    INode inode;
-    if (!read_inode(dir_id, &inode) || inode.type != FS_DIRECTORY) {
+    std::string content;
+    if (!read_inode_data(dir_id, content)) {
         return false;
     }
-
-    if (inode.block_count == 0) {
-        return true; // 空目录
-    }
-
-    // 读取目录数据
-    std::vector<uint8_t> data(inode.size);
-    for (uint32_t i = 0; i < inode.block_count; ++i) {
-        std::vector<uint8_t> block_data(BLOCK_SIZE);
-        if (!disk_->read_block(inode.start_block + i, block_data.data())) {
-            return false;
-        }
-
-        const size_t copy_size = std::min(static_cast<size_t>(BLOCK_SIZE),
-                                  data.size() - i * BLOCK_SIZE);
-        memcpy(data.data() + i * BLOCK_SIZE, block_data.data(), copy_size);
-    }
-
+    std::vector<uint8_t> data(content.begin(), content.end());
     return dir.deserialize(data);
 }
 
 bool INodeManager::save_directory_content(const uint32_t dir_id, const Directory& dir) const {
-
-    // 获取目录的inode信息
-    INode inode;
-    if (!read_inode(dir_id, &inode)) {
-        std::cerr << "Error: 无法读取目录inode" << std::endl;
-        return false;
-    }
-
-    // 序列化目录内容
-    std::vector<uint8_t> dir_data = dir.serialize();
-    if (dir_data.empty()) {
-        std::cerr << "Error: 目录序列化失败" << std::endl;
-        return false;
-    }
-
-
-    // 确保数据块已分配
-    if (inode.block_count == 0) {
-        std::cerr << "Error: 目录数据块未正确分配" << std::endl;
-        return false;
-    }
-
-    // 准备写入数据
-    // Directories currently use only one block. inode.size is the size of dir_data.
-    // The block should contain exactly dir_data.
-    if (dir_data.size() > BLOCK_SIZE) {
-        std::cerr << "Error: Directory content size (" << dir_data.size()
-                  << " bytes) exceeds block size (" << BLOCK_SIZE << " bytes)." << std::endl;
-        // This indicates a need for multi-block directory support or larger block_count for the directory.
-        // For now, this is an error condition.
-        return false;
-    }
-
-    std::vector<uint8_t> block_content(BLOCK_SIZE, 0); // Initialize with zeros
-    std::memcpy(block_content.data(), dir_data.data(), dir_data.size());
-
-    // 写入数据块
-    if (!disk_->write_block(inode.start_block, block_content.data())) {
-        std::cerr << "Error: 写入目录数据块失败" << std::endl;
-        return false;
-    }
-
-    // 更新目录inode
-    inode.size = dir_data.size();
-    inode.modify_time = time(nullptr);
-
-    if (!write_inode(dir_id, &inode)) {
-        std::cerr << "Error: 更新目录inode失败" << std::endl;
-        return false;
-    }
-
-    return true;
+    std::vector<uint8_t> data = dir.serialize();
+    std::string content(data.begin(), data.end());
+    return write_inode_data(dir_id, content);
 }
 
 bool INodeManager::add_directory_entry(const uint32_t dir_id, const std::string& name,
@@ -767,10 +720,10 @@ bool INodeManager::delete_directory(const std::string& path) {
     return delete_directory_recursive(inode_id);
 }
 
-bool INodeManager::read_file_data(const uint32_t inode_id, std::string& content) const
+bool INodeManager::read_inode_data(const uint32_t inode_id, std::string& content) const
 {
     INode inode;
-    if (!read_inode(inode_id, &inode) || inode.type != FS_FILE) {
+    if (!read_inode(inode_id, &inode)) {
         return false;
     }
     // 使用细粒度锁保护
@@ -778,32 +731,28 @@ bool INodeManager::read_file_data(const uint32_t inode_id, std::string& content)
 
     // 使用vector作为中间缓冲区
     std::vector<uint8_t> buffer(inode.size);
-
-    // 读取所有数据块
     for (uint32_t i = 0; i < inode.block_count; ++i) {
-        std::vector<uint8_t> block_data(BLOCK_SIZE);
-        if (!disk_->read_block(inode.start_block + i, block_data.data())) {
+        const size_t offset = i * BLOCK_SIZE;
+        const size_t copy_size = std::min(static_cast<size_t>(BLOCK_SIZE), inode.size - offset);
+
+        std::vector<uint8_t> block_buffer(BLOCK_SIZE);
+        // 使用缓存读取
+        if (!cache_->read_block(inode.start_block + i, block_buffer.data())) {
             return false;
         }
-
-        const size_t offset = i * BLOCK_SIZE;
-        const size_t remaining = inode.size - offset;
-        const size_t copy_size = std::min(static_cast<size_t>(BLOCK_SIZE), remaining);
-
         if (copy_size > 0) {
-            std::memcpy(buffer.data() + offset, block_data.data(), copy_size);
+            std::memcpy(buffer.data() + offset, block_buffer.data(), copy_size);
         }
     }
 
-    // 将buffer转换为string
-    content = std::string(buffer.begin(), buffer.end());
+    content.assign(buffer.begin(), buffer.end());
     return true;
 }
 
-bool INodeManager::write_file_data(const uint32_t inode_id, const std::string& content) const
+bool INodeManager::write_inode_data(const uint32_t inode_id, const std::string& content) const
 {
     INode inode;
-    if (!read_inode(inode_id, &inode) || inode.type != FS_FILE) {
+    if (!read_inode(inode_id, &inode)) {
         return false;
     }
 
@@ -819,15 +768,16 @@ bool INodeManager::write_file_data(const uint32_t inode_id, const std::string& c
 
     // 写入所有数据块
     for (uint32_t i = 0; i < inode.block_count; ++i) {
-        std::vector<uint8_t> block_data(BLOCK_SIZE, 0);
-        const size_t copy_size = std::min(static_cast<size_t>(BLOCK_SIZE),
-                                  content.size() - i * BLOCK_SIZE);
+        const size_t offset = i * BLOCK_SIZE;
+        const size_t copy_size = std::min(static_cast<size_t>(BLOCK_SIZE), content.size() - offset);
 
+        std::vector<uint8_t> block_buffer(BLOCK_SIZE, 0);
         if (copy_size > 0) {
-            memcpy(block_data.data(), content.data() + i * BLOCK_SIZE, copy_size);
+            memcpy(block_buffer.data(), content.data() + offset, copy_size);
         }
 
-        if (!disk_->write_block(inode.start_block + i, block_data.data())) {
+        // 使用缓存写入
+        if (!cache_->write_block(inode.start_block + i, block_buffer.data())) {
             return false;
         }
     }
@@ -835,6 +785,24 @@ bool INodeManager::write_file_data(const uint32_t inode_id, const std::string& c
     // 更新修改时间
     inode.modify_time = time(nullptr);
     return write_inode(inode_id, &inode);
+}
+
+bool INodeManager::read_file_data(const uint32_t inode_id, std::string& content) const
+{
+    INode inode;
+    if (!read_inode(inode_id, &inode) || inode.type != FS_FILE) {
+        return false;
+    }
+    return read_inode_data(inode_id, content);
+}
+
+bool INodeManager::write_file_data(const uint32_t inode_id, const std::string& content) const
+{
+    INode inode;
+    if (!read_inode(inode_id, &inode) || inode.type != FS_FILE) {
+        return false;
+    }
+    return write_inode_data(inode_id, content);
 }
 
 bool INodeManager::read_file_block(const std::string& path, const uint32_t block_index, std::string& content) const

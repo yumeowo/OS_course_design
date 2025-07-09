@@ -9,10 +9,10 @@
  * @return 创建成功返回true，失败返回false
  */
 bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
-    const uint32_t total_blocks = disk_size_ / block_size_;
     disk_file_ = filename;
     disk_size_ = size_mb * 1024 * 1024; // 将MiB转换为字节
 
+    const uint32_t total_blocks = disk_size_ / block_size_;
     // ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘创建操作
 
     // 以二进制模式创建文件

@@ -6,6 +6,7 @@
 
 #include "disk.h"
 #include "bitmap.h"
+#include "cache.h"
 #include "directory.h"
 #include "../process/sync.h"
 
@@ -47,7 +48,7 @@ struct FileInfo {
 
 class INodeManager {
 public:
-    INodeManager(VirtualDisk* disk, FreeBitmap* bitmap);
+    INodeManager(VirtualDisk* disk, FreeBitmap* bitmap, CacheManager* cache);
     ~INodeManager();
 
     // 初始化和格式化
@@ -71,6 +72,7 @@ public:
     bool create_directory(const std::string& parent_path, const std::string& name);
     bool delete_file(const std::string& path);
     bool delete_directory(const std::string& path);
+    bool read_inode_data(uint32_t inode_id, std::string& content) const;
 
     // 文件读写操作
     bool read_file(const std::string& path, std::string& content) const;
@@ -91,6 +93,8 @@ private:
     mutable ReadWriteLock inode_lock_;           // 保护整个inode表
     mutable std::vector<std::unique_ptr<SpinLock>> inode_locks_;  // 每个inode的细粒度锁
     mutable SimpleMutex allocation_mutex_;       // 保护分配操作
+
+    CacheManager* cache_;           // 缓存管理器指针
 
     // 磁盘和资源管理
     VirtualDisk* disk_;             // 虚拟磁盘指针
@@ -119,6 +123,7 @@ private:
     static std::string normalize_path(const std::string& path);
     static bool is_valid_filename(const std::string& name);
 
+    bool write_inode_data(uint32_t inode_id, const std::string& content) const;
     // 文件读写辅助方法
     bool read_file_data(uint32_t inode_id, std::string& content) const;
     bool write_file_data(uint32_t inode_id, const std::string& content) const;
