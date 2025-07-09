@@ -182,5 +182,12 @@ void CacheManager::print_status() const {
     }
 
     std::cout << "FIFO队列长度: " << fifo_queue_.size() << std::endl;
+
+    for (auto & page : pages_) {
+        std::cout << "Page Block No: " << page.block_no
+                  << ", Dirty: " << (page.dirty ? "Yes" : "No")
+                  << ", Access Time: " << std::ctime(&page.access_time) << std::endl;
+        std::cout << "------------------------------------------------" << std::endl;
+    }
     std::cout << std::endl;
 }
