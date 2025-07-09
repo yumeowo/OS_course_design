@@ -21,7 +21,6 @@ void FreeBitmap::initialize() {
 }
 
 bool FreeBitmap::is_block_free(const uint32_t block_no) const {
-    ReadWriteLock::ReadGuard guard(rw_lock_);
     if (block_no >= total_blocks_) {
         return false;
     }

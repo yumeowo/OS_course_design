@@ -13,47 +13,42 @@ bool VirtualDisk::create(const std::string& filename, const size_t size_mb) {
     disk_file_ = filename;
     disk_size_ = size_mb * 1024 * 1024; // 将MiB转换为字节
 
-    {
-        ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘创建操作
+    ReadWriteLock::WriteGuard write_guard(disk_lock_); // 使用写锁保护磁盘创建操作
 
-        // 以二进制模式创建文件
-        file_stream_.open(disk_file_, std::ios::out | std::ios::binary | std::ios::trunc);
-        if (!file_stream_.is_open())
+    // 以二进制模式创建文件
+    file_stream_.open(disk_file_, std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!file_stream_.is_open())
+    {
+        std::cerr << "Error: Failed to create disk file: " << disk_file_ << std::endl;
+        return false;
+    }
+
+    // 创建指定大小的磁盘文件，用0填充
+    const std::vector<char> buffer(block_size_, 0);
+
+    for (uint32_t i = 0; i < total_blocks; ++i)
+    {
+        file_stream_.write(buffer.data(), block_size_);
+        if (file_stream_.fail())
         {
-            std::cerr << "Error: Failed to create disk file: " << disk_file_ << std::endl;
+            std::cerr << "Error: Failed to write block " << i << " during disk creation" << std::endl;
+            file_stream_.close();
             return false;
         }
-
-        // 创建指定大小的磁盘文件，用0填充
-        const std::vector<char> buffer(block_size_, 0);
-
-        for (uint32_t i = 0; i < total_blocks; ++i)
-        {
-            file_stream_.write(buffer.data(), block_size_);
-            if (file_stream_.fail())
-            {
-                std::cerr << "Error: Failed to write block " << i << " during disk creation" << std::endl;
-                file_stream_.close();
-                return false;
-            }
-        }
     }
-    {
-        ReadWriteLock::WriteGuard write_guard(disk_lock_); // 重新获取写锁以确保文件流状态一致
 
-        file_stream_.close();
-        // 重新以读写模式打开文件
-        file_stream_.open(disk_file_, std::ios::in | std::ios::out | std::ios::binary);
-        if (!file_stream_.is_open()) {
-            std::cerr << "Error: Failed to reopen disk file: " << disk_file_ << std::endl;
-            return false;
-        }
-
-        std::cout << "Virtual disk created successfully: " << disk_file_
-                  << " (Size: " << size_mb << "MB, Blocks: " << total_blocks << ")" << std::endl;
-
-        return true;
+    file_stream_.close();
+    // 重新以读写模式打开文件
+    file_stream_.open(disk_file_, std::ios::in | std::ios::out | std::ios::binary);
+    if (!file_stream_.is_open()) {
+        std::cerr << "Error: Failed to reopen disk file: " << disk_file_ << std::endl;
+        return false;
     }
+
+    std::cout << "Virtual disk created successfully: " << disk_file_
+              << " (Size: " << size_mb << "MB, Blocks: " << total_blocks << ")" << std::endl;
+
+    return true;
 }
 
 /**

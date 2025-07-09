@@ -38,8 +38,6 @@ bool INodeManager::initialize() const
     return true;
 }
 bool INodeManager::create_root_directory() {
-    ReadWriteLock::WriteGuard write_guard(inode_lock_);
-
     // 创建根目录inode
     INode root_inode;
     root_inode.id = ROOT_INODE_ID;
@@ -166,9 +164,6 @@ bool INodeManager::read_inode(const uint32_t inode_id, INode* node) const
 bool INodeManager::write_inode(const uint32_t inode_id, const INode* node) const
 {
     if (inode_id >= max_inodes_) return false;
-
-    // 使用写锁保护写操作
-    ReadWriteLock::WriteGuard write_guard(inode_lock_);
 
     if (!inode_used_[inode_id]) return false;
 
