@@ -682,7 +682,7 @@ void SimpleFileSystem::cmd_echo(const std::vector<std::string>& args) {
     const int result = write_file(args.back(), content);
 
     if (result == 0) {
-        std::cout << "写入文件成功: " << args[2] << std::endl;
+        std::cout << "写入文件成功: " << args.back() << std::endl;
     } else {
         std::cout << "写入文件失败，错误码: " << result << std::endl;
     }
